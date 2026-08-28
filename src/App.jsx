@@ -31,7 +31,7 @@ export default function App() {
             color: "#fff", fontSize: 20, fontWeight: 800, marginBottom: 14,
           }}>⚙️</div>
           <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
-            ระบบเปรียบเทียบอะไหล่
+            วัดขนาดล้อหุ่นยนต์
           </div>
           <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
             กรอกชื่อของคุณก่อนเริ่มใช้งาน ใช้บันทึกในประวัติการตรวจวัด
