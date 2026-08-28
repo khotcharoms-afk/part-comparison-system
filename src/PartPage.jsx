@@ -13,8 +13,8 @@ const ORANGE_LIGHT = "#FFF7ED";
 const ORANGE_BORDER = "#FED7AA";
 
 const FIELDS = [
-  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (mm)" },
-  { key: "thickness", label: "ความหนา (mm)" },
+  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (cm)" },
+  { key: "thickness", label: "ความหนา (cm)" },
   { key: "gainX", label: "Gain X" },
   { key: "gainY", label: "Gain Y" },
 ];
