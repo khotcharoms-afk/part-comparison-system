@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // No login system yet, so these are open to anyone with the project URL.
+    // This is fine for an internal tool with no sensitive data, but add proper
+    // auth-based rules (request.auth != null, role checks, etc.) once a login
+    // system exists.
+
+    match /partStandards/{docId} {
+      allow read, write: if true;
+    }
+
+    match /partInspections/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
