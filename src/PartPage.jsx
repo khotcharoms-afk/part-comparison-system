@@ -6,6 +6,7 @@ import {
 import { db } from "./firebase";
 import Part3DView from "./Part3DView.jsx";
 import CaliperConnector from "./CaliperConnector.jsx";
+import GainAngleChart, { computeAngleInfo } from "./GainAngleChart.jsx";
 
 const ORANGE = "#F97316";
 const PURPLE = "#6B21A8";
@@ -15,6 +16,13 @@ const ORANGE_BORDER = "#FED7AA";
 const FIELDS = [
   { key: "diameter", label: "เส้นผ่านศูนย์กลาง (cm)" },
   { key: "thickness", label: "ความหนา (cm)" },
+];
+
+// Gain X/Y aren't part of the diameter/thickness threshold system — they're only
+// used to derive an angle (atan2) and compare standard vs measured orientation.
+const GAIN_FIELDS = [
+  { key: "gainX", label: "Gain X" },
+  { key: "gainY", label: "Gain Y" },
 ];
 
 function calcDiff(measured, standard) {
@@ -102,7 +110,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
           color: "#fff", fontSize: 15, fontWeight: 800,
         }}>⚙️</div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>วัดขนาดล้อ</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>เปรียบเทียบอะไหล่</div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>Part Standards Comparison</div>
         </div>
       </div>
@@ -159,7 +167,7 @@ function TabButton({ active, onClick, children }) {
 
 const emptyStandardForm = {
   model: "", partType: "",
-  diameter: "", thickness: "",
+  diameter: "", thickness: "", gainX: "", gainY: "",
   warning: 5, critical: 10,
   modelUrl: "",
 };
@@ -182,6 +190,8 @@ function StandardsTab({ standards, canManage, currentUser }) {
       partType: s.partType || "",
       diameter: s.specs?.diameter ?? "",
       thickness: s.specs?.thickness ?? "",
+      gainX: s.specs?.gainX ?? "",
+      gainY: s.specs?.gainY ?? "",
       warning: s.thresholds?.warning ?? 5,
       critical: s.thresholds?.critical ?? 10,
       modelUrl: s.modelUrl || "",
@@ -202,6 +212,8 @@ function StandardsTab({ standards, canManage, currentUser }) {
       specs: {
         diameter: parseFloat(form.diameter) || 0,
         thickness: parseFloat(form.thickness) || 0,
+        gainX: parseFloat(form.gainX) || 0,
+        gainY: parseFloat(form.gainY) || 0,
       },
       thresholds: {
         warning: parseFloat(form.warning) || 5,
@@ -284,6 +296,21 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 </div>
               ))}
             </div>
+            {(s.specs?.gainX || s.specs?.gainY) && (
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 8,
+              }}>
+                {GAIN_FIELDS.map(f => (
+                  <div key={f.key} style={{
+                    background: "#F5F3FF", border: "1px solid #DDD6FE",
+                    borderRadius: 8, padding: "6px 8px", textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>{f.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>{s.specs?.[f.key]}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -307,6 +334,16 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
               {FIELDS.map(f => (
+                <FormField key={f.key} label={f.label} type="number" value={form[f.key]}
+                  onChange={v => setForm({ ...form, [f.key]: v })} />
+              ))}
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>
+              Gain X / Gain Y (สำหรับคำนวณมุม — ไม่บังคับ)
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              {GAIN_FIELDS.map(f => (
                 <FormField key={f.key} label={f.label} type="number" value={form[f.key]}
                   onChange={v => setForm({ ...form, [f.key]: v })} />
               ))}
@@ -355,7 +392,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
 function InspectTab({ standards, inspections, currentUser }) {
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
-  const [values, setValues] = useState({ diameter: "", thickness: "" });
+  const [values, setValues] = useState({ diameter: "", thickness: "", gainX: "", gainY: "" });
   const [saving, setSaving] = useState(false);
   const [activeField, setActiveField] = useState(FIELDS[0].key);
   const fieldRefs = useRef({});
@@ -384,9 +421,14 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   const conditionStatus = useMemo(() => conditionStatusFrom(condition), [condition]);
 
+  const angleInfo = useMemo(
+    () => computeAngleInfo(selected?.specs?.gainX, selected?.specs?.gainY, values.gainX, values.gainY),
+    [selected, values.gainX, values.gainY]
+  );
+
   const resetForm = () => {
     setSerialNo("");
-    setValues({ diameter: "", thickness: "" });
+    setValues({ diameter: "", thickness: "", gainX: "", gainY: "" });
     setActiveField(FIELDS[0].key);
     setCondition(emptyCondition);
     setConditionNote("");
@@ -417,9 +459,12 @@ function InspectTab({ standards, inspections, currentUser }) {
         values: {
           diameter: parseFloat(values.diameter) || null,
           thickness: parseFloat(values.thickness) || null,
+          gainX: parseFloat(values.gainX) || null,
+          gainY: parseFloat(values.gainY) || null,
         },
         results: liveResults,
         overallStatus,
+        angleInfo,
         condition,
         conditionNote: conditionNote.trim(),
         conditionStatus,
@@ -501,6 +546,28 @@ function InspectTab({ standards, inspections, currentUser }) {
             );
           })}
         </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "16px 0 8px" }}>
+          Gain X / Gain Y (สำหรับคำนวณมุม)
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          {GAIN_FIELDS.map(f => (
+            <FormField
+              key={f.key} label={f.label} type="number" value={values[f.key]}
+              onChange={v => setValues({ ...values, [f.key]: v })}
+              disabled={!selected}
+            />
+          ))}
+        </div>
+
+        {selected && (selected.specs?.gainX || selected.specs?.gainY) && (
+          <div style={{ marginBottom: 4 }}>
+            <GainAngleChart
+              standardX={selected.specs?.gainX} standardY={selected.specs?.gainY}
+              measuredX={values.gainX} measuredY={values.gainY}
+            />
+          </div>
+        )}
 
 
         <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "18px 0 8px" }}>
