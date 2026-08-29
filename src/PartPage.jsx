@@ -463,24 +463,40 @@ function StandardsTab({ standards, canManage, currentUser }) {
 
 /* ---------------- INSPECT TAB ---------------- */
 
+function targetKey(t) {
+  return t.kind === "field" ? `field:${t.key}` : `gain:${t.idx}:${t.axis}`;
+}
+function buildTargetList(gainCount) {
+  const targets = FIELDS.map(f => ({ kind: "field", key: f.key }));
+  for (let i = 0; i < gainCount; i++) {
+    targets.push({ kind: "gain", idx: i, axis: "x" });
+    targets.push({ kind: "gain", idx: i, axis: "y" });
+  }
+  return targets;
+}
+
 function InspectTab({ standards, inspections, currentUser }) {
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [values, setValues] = useState({ diameter: "", thickness: "" });
   const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
   const [saving, setSaving] = useState(false);
-  const [activeField, setActiveField] = useState(FIELDS[0].key);
+  const [activeTargetKey, setActiveTargetKey] = useState(`field:${FIELDS[0].key}`);
   const fieldRefs = useRef({});
+  const gainRefs = useRef({});
   const [condition, setCondition] = useState(emptyCondition);
   const [conditionNote, setConditionNote] = useState("");
 
   const selected = standards.find(s => s.id === selectedId);
   const requiredGainCount = selected?.specs?.gainPoints?.length || 10;
 
+  const targetList = useMemo(() => buildTargetList(gainPoints.length), [gainPoints.length]);
+
   // Reset the gain point table to match whatever point-count the selected model's
   // standard was defined with, whenever the selected model changes.
   useEffect(() => {
     setGainPoints(emptyGainPoints(requiredGainCount));
+    setActiveTargetKey(`field:${FIELDS[0].key}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -522,18 +538,33 @@ function InspectTab({ standards, inspections, currentUser }) {
     setSerialNo("");
     setValues({ diameter: "", thickness: "" });
     setGainPoints(emptyGainPoints(requiredGainCount));
-    setActiveField(FIELDS[0].key);
+    setActiveTargetKey(`field:${FIELDS[0].key}`);
     setCondition(emptyCondition);
     setConditionNote("");
   };
 
+  // Caliper values fill whichever field/cell is currently active — diameter, thickness,
+  // or any Gain X/Y cell — then auto-advance to the next one in sequence.
   const handleCaliperValue = (num) => {
     if (!selected) return;
-    setValues(prev => ({ ...prev, [activeField]: String(num) }));
-    const idx = FIELDS.findIndex(f => f.key === activeField);
-    const next = FIELDS[(idx + 1) % FIELDS.length];
-    setActiveField(next.key);
-    requestAnimationFrame(() => fieldRefs.current[next.key]?.focus());
+    const currentIdx = targetList.findIndex(t => targetKey(t) === activeTargetKey);
+    const current = currentIdx >= 0 ? targetList[currentIdx] : targetList[0];
+    if (!current) return;
+
+    if (current.kind === "field") {
+      setValues(prev => ({ ...prev, [current.key]: String(num) }));
+    } else {
+      setGainPoints(prev => prev.map((p, i) => (i === current.idx ? { ...p, [current.axis]: String(num) } : p)));
+    }
+
+    const nextIdx = ((currentIdx >= 0 ? currentIdx : 0) + 1) % targetList.length;
+    const next = targetList[nextIdx];
+    const nextKey = targetKey(next);
+    setActiveTargetKey(nextKey);
+    requestAnimationFrame(() => {
+      if (next.kind === "field") fieldRefs.current[next.key]?.focus();
+      else gainRefs.current[`${next.idx}-${next.axis}`]?.focus();
+    });
   };
 
   const handleSubmit = async () => {
@@ -621,7 +652,7 @@ function InspectTab({ standards, inspections, currentUser }) {
           {FIELDS.map(f => {
             const r = liveResults[f.key];
             const meta = r?.status ? STATUS_META[r.status] : null;
-            const isActive = activeField === f.key;
+            const isActive = activeTargetKey === `field:${f.key}`;
             return (
               <div key={f.key} style={{
                 borderRadius: 10, padding: isActive ? 4 : 0,
@@ -631,7 +662,7 @@ function InspectTab({ standards, inspections, currentUser }) {
                   ref={el => (fieldRefs.current[f.key] = el)}
                   label={f.label} type="number" value={values[f.key]}
                   onChange={v => setValues({ ...values, [f.key]: v })}
-                  onFocus={() => setActiveField(f.key)}
+                  onFocus={() => setActiveTargetKey(`field:${f.key}`)}
                   disabled={!selected}
                 />
                 {meta && (
@@ -653,6 +684,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
           กรอกเท่าที่วัดได้ ไม่ต้องครบทุกจุดก็คำนวณได้ (เฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y)
           {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
+          {" · "}คลิกเลือกช่องแล้วใช้คาลิปเปอร์ยิงค่าเข้าได้เลย (เลื่อนไปช่องถัดไปให้อัตโนมัติ)
         </div>
         <div style={{
           display: "grid",
@@ -664,29 +696,41 @@ function InspectTab({ standards, inspections, currentUser }) {
               display: "grid", gridTemplateColumns: "1fr",
               gap: "4px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
             }}>
-              {gainPoints.map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
-                  <input
-                    type="number" placeholder="X" value={p.x} disabled={!selected}
-                    onChange={e => updateGainPoint(i, "x", e.target.value)}
-                    style={{
-                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
-                      background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
-                    }}
-                  />
-                  <input
-                    type="number" placeholder="Y" value={p.y} disabled={!selected}
-                    onChange={e => updateGainPoint(i, "y", e.target.value)}
-                    style={{
-                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
-                      background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              ))}
+              {gainPoints.map((p, i) => {
+                const isActiveX = activeTargetKey === `gain:${i}:x`;
+                const isActiveY = activeTargetKey === `gain:${i}:y`;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
+                    <input
+                      ref={el => (gainRefs.current[`${i}-x`] = el)}
+                      type="number" placeholder="X" value={p.x} disabled={!selected}
+                      onChange={e => updateGainPoint(i, "x", e.target.value)}
+                      onFocus={() => setActiveTargetKey(`gain:${i}:x`)}
+                      style={{
+                        flex: 1, minWidth: 0, borderRadius: 6,
+                        border: isActiveX ? "1px solid #F97316" : "1px solid #e2e8f0",
+                        boxShadow: isActiveX ? "0 0 0 2px #FFEDD5" : "none",
+                        padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
+                        background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
+                      }}
+                    />
+                    <input
+                      ref={el => (gainRefs.current[`${i}-y`] = el)}
+                      type="number" placeholder="Y" value={p.y} disabled={!selected}
+                      onChange={e => updateGainPoint(i, "y", e.target.value)}
+                      onFocus={() => setActiveTargetKey(`gain:${i}:y`)}
+                      style={{
+                        flex: 1, minWidth: 0, borderRadius: 6,
+                        border: isActiveY ? "1px solid #F97316" : "1px solid #e2e8f0",
+                        boxShadow: isActiveY ? "0 0 0 2px #FFEDD5" : "none",
+                        padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
+                        background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
 
