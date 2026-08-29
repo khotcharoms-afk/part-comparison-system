@@ -14,26 +14,24 @@ function colorFor(status) {
   return STATUS_COLOR[status] || IDLE_COLOR;
 }
 
-const FIELD_KEYS = ["diameter", "thickness", "gainX", "gainY"];
+const FIELD_KEYS = ["diameter", "thickness"];
 
 const LEGEND_FIELDS = [
   { key: "diameter", label: "เส้นผ่านศูนย์กลาง" },
   { key: "thickness", label: "ความหนา" },
-  { key: "gainX", label: "Gain X" },
-  { key: "gainY", label: "Gain Y" },
 ];
 
 /**
  * Part3DView
  * - No modelUrl → renders a simplified generic "wheel" made of primitives. Works out of the box.
  * - modelUrl provided (.glb/.gltf) → loads the real model. Any mesh whose name contains
- *   "diameter", "thickness", "gainX", or "gainY" (case-insensitive) gets colored according to
- *   that field's status. Meshes that don't match any field keep their original look untouched.
+ *   "diameter" or "thickness" (case-insensitive) gets colored according to that field's status.
+ *   Meshes that don't match either field keep their original look untouched.
  *   If loading fails, falls back to the primitive wheel automatically.
  */
 export default function Part3DView({ results = {}, overallStatus, modelUrl }) {
   const mountRef = useRef(null);
-  const fieldMatsRef = useRef(null); // { diameter:[mat,...], thickness:[...], gainX:[...], gainY:[...] }
+  const fieldMatsRef = useRef(null); // { diameter:[mat,...], thickness:[...] }
   const bodyMatRef = useRef(null);   // only present in primitive fallback mode
   const [loadError, setLoadError] = useState(false);
 
@@ -92,29 +90,17 @@ export default function Part3DView({ results = {}, overallStatus, modelUrl }) {
       rim.position.y = 0.29;
       group.add(rim);
 
-      const gxGeo = new THREE.BoxGeometry(0.55, 0.16, 0.16);
-      const gxMat = new THREE.MeshStandardMaterial({ color: IDLE_COLOR, roughness: 0.4 });
-      const gx = new THREE.Mesh(gxGeo, gxMat);
-      gx.position.set(1.0, 0.35, 0);
-      group.add(gx);
-
-      const gyGeo = new THREE.BoxGeometry(0.16, 0.16, 0.55);
-      const gyMat = new THREE.MeshStandardMaterial({ color: IDLE_COLOR, roughness: 0.4 });
-      const gy = new THREE.Mesh(gyGeo, gyMat);
-      gy.position.set(0, 0.35, 1.0);
-      group.add(gy);
-
-      disposables.geometries.push(bodyGeo, outerRingGeo, rimGeo, gxGeo, gyGeo);
-      disposables.materials.push(bodyMat, outerRingMat, rimMat, gxMat, gyMat);
+      disposables.geometries.push(bodyGeo, outerRingGeo, rimGeo);
+      disposables.materials.push(bodyMat, outerRingMat, rimMat);
 
       bodyMatRef.current = bodyMat;
       fieldMatsRef.current = {
-        diameter: [outerRingMat], thickness: [rimMat], gainX: [gxMat], gainY: [gyMat],
+        diameter: [outerRingMat], thickness: [rimMat],
       };
     }
 
     function bindRealModel(gltfScene) {
-      const matched = { diameter: [], thickness: [], gainX: [], gainY: [] };
+      const matched = { diameter: [], thickness: [] };
       gltfScene.traverse((child) => {
         if (!child.isMesh) return;
         const name = (child.name || "").toLowerCase();
