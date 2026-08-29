@@ -373,7 +373,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
               กรอกเท่าที่วัดได้ ระบบจะเฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y
             </div>
             <div style={{
-              display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", marginBottom: 14,
+              display: "grid", gridTemplateColumns: "1fr", gap: "6px", marginBottom: 14,
             }}>
               {gainPoints.map((p, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
