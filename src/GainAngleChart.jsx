@@ -1,20 +1,20 @@
-function toRad(deg) {
-  return (deg * Math.PI) / 180;
-}
-
-function vectorPoint(cx, cy, angleDeg, r) {
-  const rad = toRad(angleDeg);
-  return {
-    x: cx + r * Math.cos(rad),
-    y: cy - r * Math.sin(rad), // flip because SVG y grows downward
-  };
-}
-
 /**
- * Pure calculation shared between the chart and the save-to-Firestore payload.
- * Angle is derived from atan2(y, x) in degrees, standard math convention
- * (0° = +X axis, counter-clockwise positive).
+ * Shared calculations (also used from PartPage.jsx when saving to Firestore).
  */
+
+// Averages up to 10 (x,y) measurement points, ignoring incomplete/invalid rows.
+export function computeAveragePoint(points) {
+  const valid = points
+    .map(p => ({ x: parseFloat(p.x), y: parseFloat(p.y) }))
+    .filter(p => !isNaN(p.x) && !isNaN(p.y));
+  if (valid.length === 0) return { avgX: null, avgY: null, count: 0, valid: [] };
+  const avgX = valid.reduce((s, p) => s + p.x, 0) / valid.length;
+  const avgY = valid.reduce((s, p) => s + p.y, 0) / valid.length;
+  return { avgX, avgY, count: valid.length, valid };
+}
+
+// Angle is derived from atan2(y, x) in degrees, standard math convention
+// (0° = +X axis, counter-clockwise positive).
 export function computeAngleInfo(standardX, standardY, measuredX, measuredY) {
   const sx = parseFloat(standardX), sy = parseFloat(standardY);
   const mx = parseFloat(measuredX), my = parseFloat(measuredY);
@@ -36,20 +36,64 @@ export function computeAngleInfo(standardX, standardY, measuredX, measuredY) {
   return { angleStandard, angleMeasured, angleDiff, angleDiffPercent };
 }
 
-export default function GainAngleChart({ standardX, standardY, measuredX, measuredY }) {
-  const { angleStandard, angleMeasured, angleDiff, angleDiffPercent } =
-    computeAngleInfo(standardX, standardY, measuredX, measuredY);
+function niceTicks(min, max, count = 4) {
+  if (min === max) { min -= 1; max += 1; }
+  const step = (max - min) / count;
+  const ticks = [];
+  for (let i = 0; i <= count; i++) ticks.push(min + step * i);
+  return ticks;
+}
 
-  const size = 220, cx = size / 2, cy = size / 2, r = 80;
-  const stdPoint = angleStandard !== null ? vectorPoint(cx, cy, angleStandard, r) : null;
-  const measPoint = angleMeasured !== null ? vectorPoint(cx, cy, angleMeasured, r) : null;
+/**
+ * Cartesian-style (proper axes + grid) plot of:
+ * - up to 10 raw measured points (small orange dots)
+ * - the averaged measured point / vector (solid orange)
+ * - the standard point / vector (dashed purple)
+ */
+export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
+  const { angleStandard, angleMeasured, angleDiff, angleDiffPercent } =
+    computeAngleInfo(standardX, standardY, avgX, avgY);
+
+  const sx = parseFloat(standardX), sy = parseFloat(standardY);
+  const hasStandard = !isNaN(sx) && !isNaN(sy);
+  const validPoints = (points || [])
+    .map(p => ({ x: parseFloat(p.x), y: parseFloat(p.y) }))
+    .filter(p => !isNaN(p.x) && !isNaN(p.y));
+  const hasAvg = avgX !== null && avgY !== null && !isNaN(avgX) && !isNaN(avgY);
+
+  // Data bounds — always include the origin so axes stay visible.
+  const allX = [0, ...(hasStandard ? [sx] : []), ...(hasAvg ? [avgX] : []), ...validPoints.map(p => p.x)];
+  const allY = [0, ...(hasStandard ? [sy] : []), ...(hasAvg ? [avgY] : []), ...validPoints.map(p => p.y)];
+  const rawMinX = Math.min(...allX), rawMaxX = Math.max(...allX);
+  const rawMinY = Math.min(...allY), rawMaxY = Math.max(...allY);
+  const rangeX = (rawMaxX - rawMinX) || 1;
+  const rangeY = (rawMaxY - rawMinY) || 1;
+  const minX = rawMinX - rangeX * 0.25, maxX = rawMaxX + rangeX * 0.25;
+  const minY = rawMinY - rangeY * 0.25, maxY = rawMaxY + rangeY * 0.25;
+
+  const size = 260, margin = 32;
+  const plotW = size - margin * 2, plotH = size - margin * 2;
+
+  const toPx = (x, y) => ({
+    px: margin + ((x - minX) / (maxX - minX)) * plotW,
+    py: margin + (1 - (y - minY) / (maxY - minY)) * plotH,
+  });
+
+  const origin = toPx(0, 0);
+  const stdPx = hasStandard ? toPx(sx, sy) : null;
+  const avgPx = hasAvg ? toPx(avgX, avgY) : null;
+  const xTicks = niceTicks(minX, maxX);
+  const yTicks = niceTicks(minY, maxY);
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 4 }}>
         มุมจาก Gain X / Gain Y
       </div>
-      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 10 }}>
+        เฉลี่ยจากข้อมูล {count || 0}/10 จุดที่กรอก
+      </div>
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
           <defs>
             <marker id="gac-arrow-purple" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
@@ -60,19 +104,52 @@ export default function GainAngleChart({ standardX, standardY, measuredX, measur
             </marker>
           </defs>
 
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 3" />
-          <line x1={cx - r - 10} y1={cy} x2={cx + r + 10} y2={cy} stroke="#f1f5f9" strokeWidth="1" />
-          <line x1={cx} y1={cy - r - 10} x2={cx} y2={cy + r + 10} stroke="#f1f5f9" strokeWidth="1" />
+          {/* grid lines + tick labels */}
+          {xTicks.map((t, i) => {
+            const { px } = toPx(t, 0);
+            return (
+              <g key={`gx-${i}`}>
+                <line x1={px} y1={margin} x2={px} y2={size - margin} stroke="#f1f5f9" strokeWidth="1" />
+                <text x={px} y={size - margin + 12} fontSize="7" fill="#94a3b8" textAnchor="middle">
+                  {t.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
+          {yTicks.map((t, i) => {
+            const { py } = toPx(0, t);
+            return (
+              <g key={`gy-${i}`}>
+                <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
+                <text x={margin - 5} y={py + 2} fontSize="7" fill="#94a3b8" textAnchor="end">
+                  {t.toFixed(1)}
+                </text>
+              </g>
+            );
+          })}
 
-          {stdPoint && (
-            <line x1={cx} y1={cy} x2={stdPoint.x} y2={stdPoint.y}
-              stroke="#6B21A8" strokeWidth="2.5" strokeDasharray="6 3" markerEnd="url(#gac-arrow-purple)" />
+          {/* axes through origin */}
+          <line x1={margin} y1={origin.py} x2={size - margin} y2={origin.py} stroke="#cbd5e1" strokeWidth="1.2" />
+          <line x1={origin.px} y1={margin} x2={origin.px} y2={size - margin} stroke="#cbd5e1" strokeWidth="1.2" />
+
+          {/* raw measured points */}
+          {validPoints.map((p, i) => {
+            const { px, py } = toPx(p.x, p.y);
+            return <circle key={i} cx={px} cy={py} r="2.5" fill="#FDBA74" stroke="#F97316" strokeWidth="0.75" />;
+          })}
+
+          {/* standard vector */}
+          {stdPx && (
+            <line x1={origin.px} y1={origin.py} x2={stdPx.px} y2={stdPx.py}
+              stroke="#6B21A8" strokeWidth="2.2" strokeDasharray="6 3" markerEnd="url(#gac-arrow-purple)" />
           )}
-          {measPoint && (
-            <line x1={cx} y1={cy} x2={measPoint.x} y2={measPoint.y}
-              stroke="#F97316" strokeWidth="2.5" markerEnd="url(#gac-arrow-orange)" />
+          {/* average measured vector */}
+          {avgPx && (
+            <line x1={origin.px} y1={origin.py} x2={avgPx.px} y2={avgPx.py}
+              stroke="#F97316" strokeWidth="2.4" markerEnd="url(#gac-arrow-orange)" />
           )}
-          <circle cx={cx} cy={cy} r="3" fill="#94a3b8" />
+
+          <circle cx={origin.px} cy={origin.py} r="2.5" fill="#94a3b8" />
         </svg>
 
         <div style={{ fontSize: 12, color: "#475569", flex: 1, minWidth: 140 }}>
@@ -82,7 +159,7 @@ export default function GainAngleChart({ standardX, standardY, measuredX, measur
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F97316", flexShrink: 0 }} />
-            วัดได้: {angleMeasured !== null ? `${angleMeasured.toFixed(1)}°` : "—"}
+            ค่าเฉลี่ยที่วัดได้: {angleMeasured !== null ? `${angleMeasured.toFixed(1)}°` : "—"}
           </div>
           {angleDiff !== null ? (
             <div style={{
@@ -94,7 +171,7 @@ export default function GainAngleChart({ standardX, standardY, measuredX, measur
             </div>
           ) : (
             <div style={{ color: "#94a3b8", fontSize: 11 }}>
-              กรอกค่ามาตรฐานและค่าที่วัดให้ครบเพื่อคำนวณ
+              กรอกค่ามาตรฐานและค่าที่วัดอย่างน้อย 1 จุดเพื่อคำนวณ
             </div>
           )}
         </div>
