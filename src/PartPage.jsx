@@ -18,12 +18,9 @@ const FIELDS = [
   { key: "thickness", label: "ความหนา (cm)" },
 ];
 
-// Gain X/Y aren't part of the diameter/thickness threshold system — they're only
-// used to derive an angle (atan2) and compare standard vs measured orientation.
-const GAIN_FIELDS = [
-  { key: "gainX", label: "Gain X" },
-  { key: "gainY", label: "Gain Y" },
-];
+// Gain X/Y aren't part of the diameter/thickness threshold system — both the standard
+// and each inspection collect up to 10 (x,y) points, averaged to derive an angle
+// (atan2) and compare standard vs measured orientation.
 
 function calcDiff(measured, standard) {
   const m = parseFloat(measured);
@@ -167,19 +164,26 @@ function TabButton({ active, onClick, children }) {
 
 const emptyStandardForm = {
   model: "", partType: "",
-  diameter: "", thickness: "", gainX: "", gainY: "",
+  diameter: "", thickness: "",
   warning: 5, critical: 10,
   modelUrl: "",
 };
+const emptyGainPoints = () => Array.from({ length: 10 }, () => ({ x: "", y: "" }));
 
 function StandardsTab({ standards, canManage, currentUser }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyStandardForm);
+  const [gainPoints, setGainPoints] = useState(emptyGainPoints);
   const [saving, setSaving] = useState(false);
+
+  const updateGainPoint = (idx, axis, val) => {
+    setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
+  };
 
   const openNew = () => {
     setForm(emptyStandardForm);
+    setGainPoints(emptyGainPoints());
     setEditingId(null);
     setShowForm(true);
   };
@@ -190,12 +194,22 @@ function StandardsTab({ standards, canManage, currentUser }) {
       partType: s.partType || "",
       diameter: s.specs?.diameter ?? "",
       thickness: s.specs?.thickness ?? "",
-      gainX: s.specs?.gainX ?? "",
-      gainY: s.specs?.gainY ?? "",
       warning: s.thresholds?.warning ?? 5,
       critical: s.thresholds?.critical ?? 10,
       modelUrl: s.modelUrl || "",
     });
+    if (Array.isArray(s.specs?.gainPoints) && s.specs.gainPoints.length > 0) {
+      const pts = emptyGainPoints();
+      s.specs.gainPoints.forEach((p, i) => {
+        if (i < 10) pts[i] = { x: p?.x ?? "", y: p?.y ?? "" };
+      });
+      setGainPoints(pts);
+    } else {
+      // backward compat with the old single gainX/gainY format
+      const pts = emptyGainPoints();
+      if (s.specs?.gainX || s.specs?.gainY) pts[0] = { x: s.specs?.gainX ?? "", y: s.specs?.gainY ?? "" };
+      setGainPoints(pts);
+    }
     setEditingId(s.id);
     setShowForm(true);
   };
@@ -206,14 +220,18 @@ function StandardsTab({ standards, canManage, currentUser }) {
       return;
     }
     setSaving(true);
+    const gainAvg = computeAveragePoint(gainPoints);
     const payload = {
       model: form.model.trim(),
       partType: form.partType.trim(),
       specs: {
         diameter: parseFloat(form.diameter) || 0,
         thickness: parseFloat(form.thickness) || 0,
-        gainX: parseFloat(form.gainX) || 0,
-        gainY: parseFloat(form.gainY) || 0,
+        gainPoints: gainPoints.map(p => ({
+          x: parseFloat(p.x) || null,
+          y: parseFloat(p.y) || null,
+        })),
+        gainAverage: { x: gainAvg.avgX, y: gainAvg.avgY, count: gainAvg.count },
       },
       thresholds: {
         warning: parseFloat(form.warning) || 5,
@@ -296,19 +314,28 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 </div>
               ))}
             </div>
-            {(s.specs?.gainX || s.specs?.gainY) && (
+            {(s.specs?.gainAverage?.x != null || s.specs?.gainAverage?.y != null) && (
               <div style={{
                 display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 8,
               }}>
-                {GAIN_FIELDS.map(f => (
-                  <div key={f.key} style={{
-                    background: "#F5F3FF", border: "1px solid #DDD6FE",
-                    borderRadius: 8, padding: "6px 8px", textAlign: "center",
-                  }}>
-                    <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>{f.label}</div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>{s.specs?.[f.key]}</div>
+                <div style={{
+                  background: "#F5F3FF", border: "1px solid #DDD6FE",
+                  borderRadius: 8, padding: "6px 8px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>Gain X (เฉลี่ย)</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>
+                    {s.specs.gainAverage.x != null ? s.specs.gainAverage.x.toFixed(2) : "—"}
                   </div>
-                ))}
+                </div>
+                <div style={{
+                  background: "#F5F3FF", border: "1px solid #DDD6FE",
+                  borderRadius: 8, padding: "6px 8px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>Gain Y (เฉลี่ย)</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>
+                    {s.specs.gainAverage.y != null ? s.specs.gainAverage.y.toFixed(2) : "—"}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -340,12 +367,34 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
 
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>
-              Gain X / Gain Y (สำหรับคำนวณมุม — ไม่บังคับ)
+              Gain X / Gain Y — วัดละเอียด 10 จุด (สำหรับคำนวณมุมมาตรฐาน — ไม่บังคับ)
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-              {GAIN_FIELDS.map(f => (
-                <FormField key={f.key} label={f.label} type="number" value={form[f.key]}
-                  onChange={v => setForm({ ...form, [f.key]: v })} />
+            <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
+              กรอกเท่าที่วัดได้ ระบบจะเฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y
+            </div>
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px", marginBottom: 14,
+            }}>
+              {gainPoints.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: "#94a3b8", width: 22, flexShrink: 0 }}>#{i + 1}</span>
+                  <input
+                    type="number" placeholder="X" value={p.x}
+                    onChange={e => updateGainPoint(i, "x", e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+                    }}
+                  />
+                  <input
+                    type="number" placeholder="Y" value={p.y}
+                    onChange={e => updateGainPoint(i, "y", e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+                    }}
+                  />
+                </div>
               ))}
             </div>
 
@@ -425,7 +474,10 @@ function InspectTab({ standards, inspections, currentUser }) {
   const gainAverage = useMemo(() => computeAveragePoint(gainPoints), [gainPoints]);
 
   const angleInfo = useMemo(
-    () => computeAngleInfo(selected?.specs?.gainX, selected?.specs?.gainY, gainAverage.avgX, gainAverage.avgY),
+    () => computeAngleInfo(
+      selected?.specs?.gainAverage?.x, selected?.specs?.gainAverage?.y,
+      gainAverage.avgX, gainAverage.avgY
+    ),
     [selected, gainAverage.avgX, gainAverage.avgY]
   );
 
@@ -597,10 +649,10 @@ function InspectTab({ standards, inspections, currentUser }) {
           ))}
         </div>
 
-        {selected && (selected.specs?.gainX || selected.specs?.gainY) && (
+        {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null) && (
           <div style={{ marginBottom: 4 }}>
             <GainAngleChart
-              standardX={selected.specs?.gainX} standardY={selected.specs?.gainY}
+              standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
               points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
             />
           </div>
