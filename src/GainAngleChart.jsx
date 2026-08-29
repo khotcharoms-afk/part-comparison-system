@@ -78,8 +78,14 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
     computeAngleInfo(standardX, standardY, avgX, avgY);
 
   const sx = parseFloat(standardX), sy = parseFloat(standardY);
-  const hasStandard = !isNaN(sx) && !isNaN(sy);
-  const hasAvg = avgX !== null && avgY !== null && !isNaN(avgX) && !isNaN(avgY);
+  const hasStandardValue = !isNaN(sx) && !isNaN(sy);
+  const hasAvgValue = avgX !== null && avgY !== null && !isNaN(avgX) && !isNaN(avgY);
+  // Whether the angle itself is defined — false for (0,0), even if the raw x/y are valid numbers,
+  // since atan2(0,0) has no meaningful direction. This must gate every use of angleStandard/
+  // angleMeasured; using a looser NaN-only check here caused angleStandard to be null while the
+  // line was still drawn, crashing on angleStandard.toFixed(...).
+  const hasStandard = angleStandard !== null;
+  const hasAvg = angleMeasured !== null;
 
   const totalPoints = points?.length || 0;
   const series = (points || []).map((p, i) => ({ idx: i + 1, x: p.x, y: p.y, angle: angleOf(p.x, p.y) }));
@@ -276,7 +282,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               มาตรฐาน
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasStandard ? sx : "—"} &nbsp; Gain Y: {hasStandard ? sy : "—"}
+              Gain X: {hasStandardValue ? sx : "—"} &nbsp; Gain Y: {hasStandardValue ? sy : "—"}
             </div>
           </div>
           <div>
@@ -285,7 +291,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               ค่าเฉลี่ยที่วัดได้
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasAvg ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvg ? avgY.toFixed(3) : "—"}
+              Gain X: {hasAvgValue ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvgValue ? avgY.toFixed(3) : "—"}
             </div>
           </div>
         </div>
