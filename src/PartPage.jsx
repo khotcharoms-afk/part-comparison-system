@@ -168,22 +168,30 @@ const emptyStandardForm = {
   warning: 5, critical: 10,
   modelUrl: "",
 };
-const emptyGainPoints = () => Array.from({ length: 10 }, () => ({ x: "", y: "" }));
+const emptyGainPoints = (n = 10) => Array.from({ length: n }, () => ({ x: "", y: "" }));
+const GAIN_POINT_OPTIONS = [10, 15, 20];
 
 function StandardsTab({ standards, canManage, currentUser }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyStandardForm);
-  const [gainPoints, setGainPoints] = useState(emptyGainPoints);
+  const [pointCount, setPointCount] = useState(10);
+  const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
   const [saving, setSaving] = useState(false);
 
   const updateGainPoint = (idx, axis, val) => {
     setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
   };
 
+  const changePointCount = (n) => {
+    setPointCount(n);
+    setGainPoints(prev => Array.from({ length: n }, (_, i) => prev[i] || { x: "", y: "" }));
+  };
+
   const openNew = () => {
     setForm(emptyStandardForm);
-    setGainPoints(emptyGainPoints());
+    setPointCount(10);
+    setGainPoints(emptyGainPoints(10));
     setEditingId(null);
     setShowForm(true);
   };
@@ -199,15 +207,18 @@ function StandardsTab({ standards, canManage, currentUser }) {
       modelUrl: s.modelUrl || "",
     });
     if (Array.isArray(s.specs?.gainPoints) && s.specs.gainPoints.length > 0) {
-      const pts = emptyGainPoints();
+      const count = GAIN_POINT_OPTIONS.includes(s.specs.gainPoints.length) ? s.specs.gainPoints.length : 10;
+      const pts = emptyGainPoints(count);
       s.specs.gainPoints.forEach((p, i) => {
-        if (i < 10) pts[i] = { x: p?.x ?? "", y: p?.y ?? "" };
+        if (i < count) pts[i] = { x: p?.x ?? "", y: p?.y ?? "" };
       });
+      setPointCount(count);
       setGainPoints(pts);
     } else {
       // backward compat with the old single gainX/gainY format
-      const pts = emptyGainPoints();
+      const pts = emptyGainPoints(10);
       if (s.specs?.gainX || s.specs?.gainY) pts[0] = { x: s.specs?.gainX ?? "", y: s.specs?.gainY ?? "" };
+      setPointCount(10);
       setGainPoints(pts);
     }
     setEditingId(s.id);
@@ -367,17 +378,31 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
 
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>
-              Gain X / Gain Y — วัดละเอียด 10 จุด (สำหรับคำนวณมุมมาตรฐาน — ไม่บังคับ)
+              Gain X / Gain Y — สำหรับคำนวณมุมมาตรฐาน (ไม่บังคับ)
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
               กรอกเท่าที่วัดได้ ระบบจะเฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y
             </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: "#475569", fontWeight: 600 }}>ความละเอียด:</span>
+              {GAIN_POINT_OPTIONS.map(n => (
+                <button key={n} type="button" onClick={() => changePointCount(n)} style={{
+                  padding: "4px 12px", borderRadius: 6,
+                  border: pointCount === n ? "1px solid #F97316" : "1px solid #e2e8f0",
+                  background: pointCount === n ? "#FFF7ED" : "#fff",
+                  color: pointCount === n ? "#c2410c" : "#475569",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                }}>{n} จุด</button>
+              ))}
+            </div>
+
             <div style={{
               display: "grid", gridTemplateColumns: "1fr", gap: "6px", marginBottom: 14,
             }}>
               {gainPoints.map((p, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "#94a3b8", width: 22, flexShrink: 0 }}>#{i + 1}</span>
+                  <span style={{ fontSize: 10, color: "#94a3b8", width: 26, flexShrink: 0 }}>#{i + 1}</span>
                   <input
                     type="number" placeholder="X" value={p.x}
                     onChange={e => updateGainPoint(i, "x", e.target.value)}
@@ -442,7 +467,7 @@ function InspectTab({ standards, inspections, currentUser }) {
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [values, setValues] = useState({ diameter: "", thickness: "" });
-  const [gainPoints, setGainPoints] = useState(() => Array.from({ length: 10 }, () => ({ x: "", y: "" })));
+  const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
   const [saving, setSaving] = useState(false);
   const [activeField, setActiveField] = useState(FIELDS[0].key);
   const fieldRefs = useRef({});
@@ -450,6 +475,14 @@ function InspectTab({ standards, inspections, currentUser }) {
   const [conditionNote, setConditionNote] = useState("");
 
   const selected = standards.find(s => s.id === selectedId);
+  const requiredGainCount = selected?.specs?.gainPoints?.length || 10;
+
+  // Reset the gain point table to match whatever point-count the selected model's
+  // standard was defined with, whenever the selected model changes.
+  useEffect(() => {
+    setGainPoints(emptyGainPoints(requiredGainCount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const liveResults = useMemo(() => {
     if (!selected) return {};
@@ -488,7 +521,7 @@ function InspectTab({ standards, inspections, currentUser }) {
   const resetForm = () => {
     setSerialNo("");
     setValues({ diameter: "", thickness: "" });
-    setGainPoints(Array.from({ length: 10 }, () => ({ x: "", y: "" })));
+    setGainPoints(emptyGainPoints(requiredGainCount));
     setActiveField(FIELDS[0].key);
     setCondition(emptyCondition);
     setConditionNote("");
@@ -615,10 +648,11 @@ function InspectTab({ standards, inspections, currentUser }) {
         </div>
 
         <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "16px 0 4px" }}>
-          Gain X / Gain Y — วัดละเอียด 10 จุด (สำหรับคำนวณมุม)
+          Gain X / Gain Y — วัดละเอียด {gainPoints.length} จุด (สำหรับคำนวณมุม)
         </div>
         <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
           กรอกเท่าที่วัดได้ ไม่ต้องครบทุกจุดก็คำนวณได้ (เฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y)
+          {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
         </div>
         <div style={{
           display: "grid", gridTemplateColumns: "1fr",
