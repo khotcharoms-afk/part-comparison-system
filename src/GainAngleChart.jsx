@@ -52,12 +52,6 @@ function niceTicks(min, max, count = 5) {
   return ticks;
 }
 
-function decimalsForRange(range) {
-  if (range <= 0.5) return 2;
-  if (range <= 5) return 1;
-  return 0;
-}
-
 const ZOOM_MIN = 1, ZOOM_MAX = 20;
 
 /**
@@ -120,7 +114,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   });
 
   const yTicks = niceTicks(minY, maxY);
-  const decimals = decimalsForRange(maxY - minY);
 
   const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
@@ -196,16 +189,11 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           </clipPath>
         </defs>
 
-        {/* Y grid + tick labels (angle in degrees) */}
+        {/* Y grid lines (angle reference) — no numeric axis labels; exact values are shown on each point */}
         {yTicks.map((t, i) => {
           const { py } = toPx(0, t);
           return (
-            <g key={`gy-${i}`}>
-              <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
-              <text x={margin - 6} y={py + 3} fontSize="10" fill="#94a3b8" textAnchor="end">
-                {t.toFixed(decimals)}°
-              </text>
-            </g>
+            <line key={`gy-${i}`} x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
           );
         })}
 
