@@ -13,8 +13,8 @@ const ORANGE_LIGHT = "#FFF7ED";
 const ORANGE_BORDER = "#FED7AA";
 
 const FIELDS = [
-  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (mm)" },
-  { key: "thickness", label: "ความหนา (mm)" },
+  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (cm)" },
+  { key: "thickness", label: "ความหนา (cm)" },
 ];
 
 function calcDiff(measured, standard) {
@@ -102,7 +102,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
           color: "#fff", fontSize: 15, fontWeight: 800,
         }}>⚙️</div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>วัดขนาดล้อหุ่นยนต์</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>เปรียบเทียบอะไหล่</div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>Part Standards Comparison</div>
         </div>
       </div>
