@@ -106,7 +106,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
   const origin = toPx(0, 0);
   const stdPx = hasStandard ? toPx(sx, sy) : null;
-  const avgPx = hasAvg ? toPx(avgX, avgY) : null;
   const xTicks = niceTicks(minX, maxX);
   const yTicks = niceTicks(minY, maxY);
   const decimals = decimalsForRange(Math.min(maxX - minX, maxY - minY));
@@ -187,9 +186,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             <marker id="gac-arrow-purple" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
               <path d="M0,0 L8,4 L0,8 Z" fill="#6B21A8" />
             </marker>
-            <marker id="gac-arrow-orange" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#F97316" />
-            </marker>
             <clipPath id="gac-clip">
               <rect x={margin} y={margin} width={plotW} height={plotH} />
             </clipPath>
@@ -254,12 +250,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               <line x1={origin.px} y1={origin.py} x2={stdPx.px} y2={stdPx.py}
                 stroke="#6B21A8" strokeWidth="2.4" strokeDasharray="6 3" strokeLinecap="round"
                 markerEnd="url(#gac-arrow-purple)" />
-            )}
-            {/* average measured vector */}
-            {avgPx && (
-              <line x1={origin.px} y1={origin.py} x2={avgPx.px} y2={avgPx.py}
-                stroke="#F97316" strokeWidth="2.8" strokeLinecap="round"
-                markerEnd="url(#gac-arrow-orange)" />
             )}
 
             <circle cx={origin.px} cy={origin.py} r="2.5" fill="#94a3b8" />
