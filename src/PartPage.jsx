@@ -102,7 +102,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
           color: "#fff", fontSize: 15, fontWeight: 800,
         }}>⚙️</div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>เปรียบเทียบอะไหล่</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>วัดขนาดล้อ</div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>Part Standards Comparison</div>
         </div>
       </div>
