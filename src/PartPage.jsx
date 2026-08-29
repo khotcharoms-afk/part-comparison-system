@@ -398,17 +398,17 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
 
             <div style={{
-              display: "grid", gridTemplateColumns: "1fr", gap: "6px", marginBottom: 14,
+              display: "grid", gridTemplateColumns: "1fr", gap: "4px", marginBottom: 14,
             }}>
               {gainPoints.map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "#94a3b8", width: 26, flexShrink: 0 }}>#{i + 1}</span>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
                   <input
                     type="number" placeholder="X" value={p.x}
                     onChange={e => updateGainPoint(i, "x", e.target.value)}
                     style={{
                       flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit", boxSizing: "border-box",
                     }}
                   />
                   <input
@@ -416,7 +416,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
                     onChange={e => updateGainPoint(i, "y", e.target.value)}
                     style={{
                       flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit", boxSizing: "border-box",
                     }}
                   />
                 </div>
@@ -662,17 +662,17 @@ function InspectTab({ standards, inspections, currentUser }) {
           <div>
             <div style={{
               display: "grid", gridTemplateColumns: "1fr",
-              gap: "6px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
+              gap: "4px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
             }}>
               {gainPoints.map((p, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "#94a3b8", width: 22, flexShrink: 0 }}>#{i + 1}</span>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
                   <input
                     type="number" placeholder="X" value={p.x} disabled={!selected}
                     onChange={e => updateGainPoint(i, "x", e.target.value)}
                     style={{
                       flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
+                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
                       background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                     }}
                   />
@@ -681,7 +681,7 @@ function InspectTab({ standards, inspections, currentUser }) {
                     onChange={e => updateGainPoint(i, "y", e.target.value)}
                     style={{
                       flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
+                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
                       background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                     }}
                   />
