@@ -621,8 +621,8 @@ function InspectTab({ standards, inspections, currentUser }) {
           กรอกเท่าที่วัดได้ ไม่ต้องครบทุกจุดก็คำนวณได้ (เฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y)
         </div>
         <div style={{
-          display: "grid", gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "1fr 1fr",
-          gap: "4px 12px", marginBottom: 12,
+          display: "grid", gridTemplateColumns: "1fr",
+          gap: "6px", marginBottom: 12,
         }}>
           {gainPoints.map((p, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
