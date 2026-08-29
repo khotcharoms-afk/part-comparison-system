@@ -125,7 +125,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
         </TabButton>
       </div>
 
-      <div style={{ padding: 16, maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ padding: 16, maxWidth: 880, margin: "0 auto" }}>
         {loading ? (
           <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>กำลังโหลด...</div>
         ) : tab === "standards" ? (
@@ -655,42 +655,50 @@ function InspectTab({ standards, inspections, currentUser }) {
           {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
         </div>
         <div style={{
-          display: "grid", gridTemplateColumns: "1fr",
-          gap: "6px", marginBottom: 12,
+          display: "grid",
+          gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "minmax(260px, 340px) 1fr",
+          gap: 16, alignItems: "start",
         }}>
-          {gainPoints.map((p, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 10, color: "#94a3b8", width: 22, flexShrink: 0 }}>#{i + 1}</span>
-              <input
-                type="number" placeholder="X" value={p.x} disabled={!selected}
-                onChange={e => updateGainPoint(i, "x", e.target.value)}
-                style={{
-                  flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                  padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
-                  background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
-                }}
-              />
-              <input
-                type="number" placeholder="Y" value={p.y} disabled={!selected}
-                onChange={e => updateGainPoint(i, "y", e.target.value)}
-                style={{
-                  flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
-                  padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
-                  background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
-                }}
+          <div>
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr",
+              gap: "6px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
+            }}>
+              {gainPoints.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 10, color: "#94a3b8", width: 22, flexShrink: 0 }}>#{i + 1}</span>
+                  <input
+                    type="number" placeholder="X" value={p.x} disabled={!selected}
+                    onChange={e => updateGainPoint(i, "x", e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
+                      background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
+                    }}
+                  />
+                  <input
+                    type="number" placeholder="Y" value={p.y} disabled={!selected}
+                    onChange={e => updateGainPoint(i, "y", e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "6px 8px", fontSize: 12, fontFamily: "inherit",
+                      background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null) && (
+            <div style={{ position: isMobileGrid() === "1fr" ? "static" : "sticky", top: 12 }}>
+              <GainAngleChart
+                standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
+                points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
               />
             </div>
-          ))}
+          )}
         </div>
-
-        {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null) && (
-          <div style={{ marginBottom: 4 }}>
-            <GainAngleChart
-              standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
-              points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
-            />
-          </div>
-        )}
 
 
         <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "18px 0 8px" }}>
