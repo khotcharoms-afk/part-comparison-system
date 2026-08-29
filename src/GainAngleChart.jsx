@@ -256,17 +256,33 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           </g>
         </svg>
 
-        <div style={{ fontSize: 12, color: "#475569", flex: 1, minWidth: 140 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#6B21A8", flexShrink: 0 }} />
-            มาตรฐาน: {angleStandard !== null ? `${angleStandard.toFixed(1)}°` : "—"}
-            {hasStandard && <span style={{ color: "#94a3b8" }}> (X={sx}, Y={sy})</span>}
+        <div style={{ fontSize: 12, color: "#475569", flex: 1, minWidth: 160 }}>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#4c1d95" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#6B21A8", flexShrink: 0 }} />
+              มาตรฐาน
+            </div>
+            <div style={{ marginLeft: 16, color: "#475569" }}>
+              Gain X: {hasStandard ? sx : "—"} &nbsp; Gain Y: {hasStandard ? sy : "—"}
+            </div>
+            <div style={{ marginLeft: 16, color: "#94a3b8", fontSize: 11 }}>
+              มุม: {angleStandard !== null ? `${angleStandard.toFixed(1)}°` : "—"}
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F97316", flexShrink: 0 }} />
-            ค่าเฉลี่ยที่วัดได้: {angleMeasured !== null ? `${angleMeasured.toFixed(1)}°` : "—"}
-            {hasAvg && <span style={{ color: "#94a3b8" }}> (X={avgX.toFixed(3)}, Y={avgY.toFixed(3)})</span>}
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#c2410c" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F97316", flexShrink: 0 }} />
+              ค่าเฉลี่ยที่วัดได้
+            </div>
+            <div style={{ marginLeft: 16, color: "#475569" }}>
+              Gain X: {hasAvg ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvg ? avgY.toFixed(3) : "—"}
+            </div>
+            <div style={{ marginLeft: 16, color: "#94a3b8", fontSize: 11 }}>
+              มุม: {angleMeasured !== null ? `${angleMeasured.toFixed(1)}°` : "—"}
+            </div>
           </div>
+
           {validPoints.length > 1 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, color: "#94a3b8", fontSize: 10.5 }}>
               <span style={{ width: 10, height: 2, background: "#FB923C", flexShrink: 0 }} />
