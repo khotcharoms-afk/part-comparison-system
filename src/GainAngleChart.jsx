@@ -161,7 +161,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>มุมจาก Gain X / Gain Y</div>
-          <div style={{ fontSize: 10, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/10 จุดที่กรอก</div>
+          <div style={{ fontSize: 10, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{points?.length || 0} จุดที่กรอก</div>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={zoomOut} title="ซูมออก" style={zoomBtnStyle}>−</button>
@@ -270,7 +270,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {validPoints.length > 1 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, color: "#94a3b8", fontSize: 10.5 }}>
               <span style={{ width: 10, height: 2, background: "#FB923C", flexShrink: 0 }} />
-              เส้นประจาง = แนวจุดที่กรอกจริงทีละจุด (#1→#10)
+              เส้นประจาง = แนวจุดที่กรอกจริงทีละจุด (#1→#{points?.length || 0})
             </div>
           )}
           {angleDiff !== null ? (
