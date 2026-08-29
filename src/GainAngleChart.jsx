@@ -242,7 +242,9 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
                   <circle cx={px} cy={py} r="3" fill="#FDBA74" stroke="#F97316" strokeWidth="0.75">
                     <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                   </circle>
-                  <text x={px + 4} y={py - 4} fontSize="6.5" fill="#c2410c">{p.idx}</text>
+                  <text x={px + 4} y={py - 4} fontSize="6" fill="#c2410c">
+                    #{p.idx} ({p.x.toFixed(decimals)}, {p.y.toFixed(decimals)})
+                  </text>
                 </g>
               );
             })}
