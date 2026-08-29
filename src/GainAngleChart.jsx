@@ -96,7 +96,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const minX = centerX - halfW, maxX = centerX + halfW;
   const minY = centerY - halfH, maxY = centerY + halfH;
 
-  const size = 280, margin = 36;
+  const size = 440, margin = 46;
   const plotW = size - margin * 2, plotH = size - margin * 2;
 
   const toPx = (x, y) => ({
@@ -183,8 +183,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           onPointerLeave={handlePointerUp}
         >
           <defs>
-            <marker id="gac-arrow-purple" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="#6B21A8" />
+            <marker id="gac-arrow-purple" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+              <path d="M0,0 L10,5 L0,10 Z" fill="#6B21A8" />
             </marker>
             <clipPath id="gac-clip">
               <rect x={margin} y={margin} width={plotW} height={plotH} />
@@ -197,7 +197,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             return (
               <g key={`gx-${i}`}>
                 <line x1={px} y1={margin} x2={px} y2={size - margin} stroke="#f1f5f9" strokeWidth="1" />
-                <text x={px} y={size - margin + 12} fontSize="7" fill="#94a3b8" textAnchor="middle">
+                <text x={px} y={size - margin + 16} fontSize="10" fill="#94a3b8" textAnchor="middle">
                   {t.toFixed(decimals)}
                 </text>
               </g>
@@ -208,7 +208,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             return (
               <g key={`gy-${i}`}>
                 <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
-                <text x={margin - 4} y={py + 2} fontSize="7" fill="#94a3b8" textAnchor="end">
+                <text x={margin - 6} y={py + 3} fontSize="10" fill="#94a3b8" textAnchor="end">
                   {t.toFixed(decimals)}
                 </text>
               </g>
@@ -217,28 +217,28 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
           <g clipPath="url(#gac-clip)">
             {/* axes through origin */}
-            <line x1={margin} y1={origin.py} x2={size - margin} y2={origin.py} stroke="#cbd5e1" strokeWidth="1.2" />
-            <line x1={origin.px} y1={margin} x2={origin.px} y2={size - margin} stroke="#cbd5e1" strokeWidth="1.2" />
+            <line x1={margin} y1={origin.py} x2={size - margin} y2={origin.py} stroke="#cbd5e1" strokeWidth="1.5" />
+            <line x1={origin.px} y1={margin} x2={origin.px} y2={size - margin} stroke="#cbd5e1" strokeWidth="1.5" />
 
             {/* line connecting the raw entered points in order — shows the actual measured trend,
-                distinct from the single standard vector and the average vector below */}
+                distinct from the standard vector */}
             {validPoints.length > 1 && (
               <polyline
                 points={validPoints.map(p => { const { px, py } = toPx(p.x, p.y); return `${px},${py}`; }).join(" ")}
-                fill="none" stroke="#FB923C" strokeWidth="1.6" strokeOpacity="0.6"
-                strokeDasharray="3 2.5" strokeLinejoin="round" strokeLinecap="round"
+                fill="none" stroke="#FB923C" strokeWidth="2.2" strokeOpacity="0.6"
+                strokeDasharray="4 3" strokeLinejoin="round" strokeLinecap="round"
               />
             )}
 
-            {/* raw measured points, with index label + native tooltip for exact value */}
+            {/* raw measured points, with index + coordinate label, and native tooltip */}
             {validPoints.map((p) => {
               const { px, py } = toPx(p.x, p.y);
               return (
                 <g key={p.idx}>
-                  <circle cx={px} cy={py} r="3" fill="#FDBA74" stroke="#F97316" strokeWidth="0.75">
+                  <circle cx={px} cy={py} r="4.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1">
                     <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                   </circle>
-                  <text x={px + 4} y={py - 4} fontSize="6" fill="#c2410c">
+                  <text x={px + 6} y={py - 6} fontSize="9" fill="#c2410c">
                     #{p.idx} ({p.x.toFixed(decimals)}, {p.y.toFixed(decimals)})
                   </text>
                 </g>
@@ -248,11 +248,11 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             {/* standard vector */}
             {stdPx && (
               <line x1={origin.px} y1={origin.py} x2={stdPx.px} y2={stdPx.py}
-                stroke="#6B21A8" strokeWidth="2.4" strokeDasharray="6 3" strokeLinecap="round"
+                stroke="#6B21A8" strokeWidth="3" strokeDasharray="8 4" strokeLinecap="round"
                 markerEnd="url(#gac-arrow-purple)" />
             )}
 
-            <circle cx={origin.px} cy={origin.py} r="2.5" fill="#94a3b8" />
+            <circle cx={origin.px} cy={origin.py} r="3.5" fill="#94a3b8" />
           </g>
         </svg>
 
