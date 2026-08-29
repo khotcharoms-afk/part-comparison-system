@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 
 /**
  * Shared calculations (also used from PartPage.jsx when saving to Firestore).
@@ -116,11 +116,20 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const zoomOut = () => setZoom(z => clampZoom(z / 1.5));
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    setZoom(z => clampZoom(z * factor));
-  };
+  // React's onWheel is attached as a passive listener, so preventDefault() inside it
+  // is silently ignored and the page scrolls instead of the chart zooming. Attaching
+  // a native listener with { passive: false } lets us actually stop page scroll here.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      setZoom(z => clampZoom(z * factor));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const pxPerUnitX = plotW / (maxX - minX);
   const pxPerUnitY = plotH / (maxY - minY);
@@ -169,7 +178,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           ref={svgRef}
           width={size} height={size} viewBox={`0 0 ${size} ${size}`}
           style={{ flexShrink: 0, touchAction: "none", cursor: "grab", background: "#fcfdff", borderRadius: 8 }}
-          onWheel={handleWheel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -216,6 +224,16 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             <line x1={margin} y1={origin.py} x2={size - margin} y2={origin.py} stroke="#cbd5e1" strokeWidth="1.2" />
             <line x1={origin.px} y1={margin} x2={origin.px} y2={size - margin} stroke="#cbd5e1" strokeWidth="1.2" />
 
+            {/* line connecting the raw entered points in order — shows the actual measured trend,
+                distinct from the single standard vector and the average vector below */}
+            {validPoints.length > 1 && (
+              <polyline
+                points={validPoints.map(p => { const { px, py } = toPx(p.x, p.y); return `${px},${py}`; }).join(" ")}
+                fill="none" stroke="#FB923C" strokeWidth="1.6" strokeOpacity="0.6"
+                strokeDasharray="3 2.5" strokeLinejoin="round" strokeLinecap="round"
+              />
+            )}
+
             {/* raw measured points, with index label + native tooltip for exact value */}
             {validPoints.map((p) => {
               const { px, py } = toPx(p.x, p.y);
@@ -232,12 +250,14 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             {/* standard vector */}
             {stdPx && (
               <line x1={origin.px} y1={origin.py} x2={stdPx.px} y2={stdPx.py}
-                stroke="#6B21A8" strokeWidth="2.2" strokeDasharray="6 3" markerEnd="url(#gac-arrow-purple)" />
+                stroke="#6B21A8" strokeWidth="2.4" strokeDasharray="6 3" strokeLinecap="round"
+                markerEnd="url(#gac-arrow-purple)" />
             )}
             {/* average measured vector */}
             {avgPx && (
               <line x1={origin.px} y1={origin.py} x2={avgPx.px} y2={avgPx.py}
-                stroke="#F97316" strokeWidth="2.4" markerEnd="url(#gac-arrow-orange)" />
+                stroke="#F97316" strokeWidth="2.8" strokeLinecap="round"
+                markerEnd="url(#gac-arrow-orange)" />
             )}
 
             <circle cx={origin.px} cy={origin.py} r="2.5" fill="#94a3b8" />
@@ -250,11 +270,17 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             มาตรฐาน: {angleStandard !== null ? `${angleStandard.toFixed(1)}°` : "—"}
             {hasStandard && <span style={{ color: "#94a3b8" }}> (X={sx}, Y={sy})</span>}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F97316", flexShrink: 0 }} />
             ค่าเฉลี่ยที่วัดได้: {angleMeasured !== null ? `${angleMeasured.toFixed(1)}°` : "—"}
             {hasAvg && <span style={{ color: "#94a3b8" }}> (X={avgX.toFixed(3)}, Y={avgY.toFixed(3)})</span>}
           </div>
+          {validPoints.length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, color: "#94a3b8", fontSize: 10.5 }}>
+              <span style={{ width: 10, height: 2, background: "#FB923C", flexShrink: 0 }} />
+              เส้นประจาง = แนวจุดที่กรอกจริงทีละจุด (#1→#10)
+            </div>
+          )}
           {angleDiff !== null ? (
             <div style={{
               padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
