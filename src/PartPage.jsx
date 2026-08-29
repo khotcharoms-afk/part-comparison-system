@@ -13,10 +13,8 @@ const ORANGE_LIGHT = "#FFF7ED";
 const ORANGE_BORDER = "#FED7AA";
 
 const FIELDS = [
-  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (cm)" },
-  { key: "thickness", label: "ความหนา (cm)" },
-  { key: "gainX", label: "Gain X" },
-  { key: "gainY", label: "Gain Y" },
+  { key: "diameter", label: "เส้นผ่านศูนย์กลาง (mm)" },
+  { key: "thickness", label: "ความหนา (mm)" },
 ];
 
 function calcDiff(measured, standard) {
@@ -104,7 +102,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
           color: "#fff", fontSize: 15, fontWeight: 800,
         }}>⚙️</div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>วัดขนาดล้อหุ่นยนต์</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>เปรียบเทียบอะไหล่</div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>Part Standards Comparison</div>
         </div>
       </div>
@@ -161,7 +159,7 @@ function TabButton({ active, onClick, children }) {
 
 const emptyStandardForm = {
   model: "", partType: "",
-  diameter: "", thickness: "", gainX: "", gainY: "",
+  diameter: "", thickness: "",
   warning: 5, critical: 10,
   modelUrl: "",
 };
@@ -184,8 +182,6 @@ function StandardsTab({ standards, canManage, currentUser }) {
       partType: s.partType || "",
       diameter: s.specs?.diameter ?? "",
       thickness: s.specs?.thickness ?? "",
-      gainX: s.specs?.gainX ?? "",
-      gainY: s.specs?.gainY ?? "",
       warning: s.thresholds?.warning ?? 5,
       critical: s.thresholds?.critical ?? 10,
       modelUrl: s.modelUrl || "",
@@ -206,8 +202,6 @@ function StandardsTab({ standards, canManage, currentUser }) {
       specs: {
         diameter: parseFloat(form.diameter) || 0,
         thickness: parseFloat(form.thickness) || 0,
-        gainX: parseFloat(form.gainX) || 0,
-        gainY: parseFloat(form.gainY) || 0,
       },
       thresholds: {
         warning: parseFloat(form.warning) || 5,
@@ -278,7 +272,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
               )}
             </div>
             <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 10,
+              display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 10,
             }}>
               {FIELDS.map(f => (
                 <div key={f.key} style={{
@@ -333,7 +327,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 onChange={v => setForm({ ...form, modelUrl: v })}
                 placeholder="https://... (Cloudinary / Firebase Storage)" />
               <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>
-                ตั้งชื่อชิ้นส่วนในไฟล์ให้มีคำว่า diameter / thickness / gainX / gainY ปนอยู่ ระบบจะลงสีให้อัตโนมัติ
+                ตั้งชื่อชิ้นส่วนในไฟล์ให้มีคำว่า diameter / thickness ปนอยู่ ระบบจะลงสีให้อัตโนมัติ
                 ถ้าเว้นว่างไว้ ระบบจะแสดงแบบจำลองทรงล้อทั่วไปแทน
               </div>
             </div>
@@ -361,7 +355,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
 function InspectTab({ standards, inspections, currentUser }) {
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
-  const [values, setValues] = useState({ diameter: "", thickness: "", gainX: "", gainY: "" });
+  const [values, setValues] = useState({ diameter: "", thickness: "" });
   const [saving, setSaving] = useState(false);
   const [activeField, setActiveField] = useState(FIELDS[0].key);
   const fieldRefs = useRef({});
@@ -392,7 +386,7 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   const resetForm = () => {
     setSerialNo("");
-    setValues({ diameter: "", thickness: "", gainX: "", gainY: "" });
+    setValues({ diameter: "", thickness: "" });
     setActiveField(FIELDS[0].key);
     setCondition(emptyCondition);
     setConditionNote("");
@@ -423,8 +417,6 @@ function InspectTab({ standards, inspections, currentUser }) {
         values: {
           diameter: parseFloat(values.diameter) || null,
           thickness: parseFloat(values.thickness) || null,
-          gainX: parseFloat(values.gainX) || null,
-          gainY: parseFloat(values.gainY) || null,
         },
         results: liveResults,
         overallStatus,
@@ -455,7 +447,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         {selected && (
           <>
             <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8,
+              display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8,
               margin: "12px 0", padding: 10, background: "#f8fafc", borderRadius: 8,
             }}>
               {FIELDS.map(f => (
