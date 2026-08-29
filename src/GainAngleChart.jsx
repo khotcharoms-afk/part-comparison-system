@@ -254,7 +254,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* each measured point, with angle + deviation-from-standard label, and tooltip */}
+          {/* each measured point, with angle + raw Gain X/Y + deviation-from-standard, and tooltip */}
           {validSeries.map((p) => {
             const { px, py } = toPx(p.idx, p.angle);
             const devPct = angleStandard != null && angleStandard !== 0
@@ -265,8 +265,11 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
                 <circle cx={px} cy={py} r="4.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1">
                   <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y} → มุม ${p.angle.toFixed(1)}°`}</title>
                 </circle>
-                <text x={px} y={py - 8} fontSize="8.5" fill="#c2410c" textAnchor="middle">
+                <text x={px} y={py - 16} fontSize="8.5" fill="#c2410c" textAnchor="middle" fontWeight="700">
                   {p.angle.toFixed(1)}°{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
+                </text>
+                <text x={px} y={py - 7} fontSize="7.5" fill="#c2820c" textAnchor="middle">
+                  X={p.x}, Y={p.y}
                 </text>
               </g>
             );
