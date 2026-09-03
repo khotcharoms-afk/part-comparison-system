@@ -15,8 +15,10 @@ export function computeAveragePoint(points) {
   return { avgX, avgY, count: valid.length, valid };
 }
 
-// Angle is derived from atan2(y, x) in degrees, standard math convention
-// (0° = +X axis, counter-clockwise positive).
+// Kept for the Firestore record PartPage.jsx saves alongside each inspection — the chart
+// itself no longer uses angle for its visual (see below), since it read confusingly:
+// a point's angle depends on both X and Y together, so "more negative Y" didn't always
+// mean "lower on the chart", which was surprising. The chart now plots raw Gain Y instead.
 export function computeAngleInfo(standardX, standardY, measuredX, measuredY) {
   const sx = parseFloat(standardX), sy = parseFloat(standardY);
   const mx = parseFloat(measuredX), my = parseFloat(measuredY);
@@ -30,18 +32,12 @@ export function computeAngleInfo(standardX, standardY, measuredX, measuredY) {
   let angleDiff = null, angleDiffPercent = null;
   if (angleStandard !== null && angleMeasured !== null) {
     let d = angleMeasured - angleStandard;
-    d = ((d + 180) % 360 + 360) % 360 - 180; // normalize to -180..180
+    d = ((d + 180) % 360 + 360) % 360 - 180;
     angleDiff = d;
-    angleDiffPercent = angleStandard !== 0 ? (Math.abs(d) / Math.abs(angleStandard)) * 100 : null;
+    angleDiffPercent = (Math.abs(d) / 180) * 100;
   }
 
   return { angleStandard, angleMeasured, angleDiff, angleDiffPercent };
-}
-
-function angleOf(x, y) {
-  const px = parseFloat(x), py = parseFloat(y);
-  if (isNaN(px) || isNaN(py)) return null;
-  return Math.atan2(py, px) * (180 / Math.PI);
 }
 
 function niceTicks(min, max, count = 5) {
@@ -57,10 +53,10 @@ const ZOOM_MIN = 1, ZOOM_MAX = 20;
 /**
  * Horizontal "run chart" — like a tire wear-profile readout:
  * X axis = point number (#1..#N, position measured around the wheel)
- * Y axis = angle (°) derived from that point's Gain X/Y
- * A flat purple reference line marks the standard angle so every point's
- * deviation from spec is visible at a glance, with a thin orange line marking
- * the average of what was actually measured.
+ * Y axis = the raw Gain Y value entered at that point
+ * A flat purple reference line marks the standard's average Gain Y so every point's
+ * deviation from spec is visible at a glance, with a thin orange line marking the
+ * average of what was actually measured.
  */
 export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
   const [zoom, setZoom] = useState(1);
@@ -68,33 +64,32 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const dragRef = useRef(null);
   const svgRef = useRef(null);
 
-  const { angleStandard, angleMeasured, angleDiff, angleDiffPercent } =
-    computeAngleInfo(standardX, standardY, avgX, avgY);
-
   const sx = parseFloat(standardX), sy = parseFloat(standardY);
-  const hasStandardValue = !isNaN(sx) && !isNaN(sy);
-  const hasAvgValue = avgX !== null && avgY !== null && !isNaN(avgX) && !isNaN(avgY);
-  // Whether the angle itself is defined — false for (0,0), even if the raw x/y are valid numbers,
-  // since atan2(0,0) has no meaningful direction. This must gate every use of angleStandard/
-  // angleMeasured; using a looser NaN-only check here caused angleStandard to be null while the
-  // line was still drawn, crashing on angleStandard.toFixed(...).
-  const hasStandard = angleStandard !== null;
-  const hasAvg = angleMeasured !== null;
+  const hasStandardX = !isNaN(sx);
+  const hasStandardY = !isNaN(sy);
+  const hasAvgX = avgX !== null && !isNaN(avgX);
+  const hasAvgY = avgY !== null && !isNaN(avgY);
 
   const totalPoints = points?.length || 0;
-  const series = (points || []).map((p, i) => ({ idx: i + 1, x: p.x, y: p.y, angle: angleOf(p.x, p.y) }));
-  const validSeries = series.filter(p => p.angle !== null);
+  const series = (points || []).map((p, i) => {
+    const yVal = parseFloat(p.y);
+    return { idx: i + 1, x: p.x, y: p.y, yVal: isNaN(yVal) ? null : yVal };
+  });
+  const validSeries = series.filter(p => p.yVal !== null);
 
-  // Base (zoom = 1) data bounds. X = point index; Y = angle (deg).
+  const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
+  const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
+
+  // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
   const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
   const allY = [
-    ...(hasStandard ? [angleStandard] : []),
-    ...(hasAvg ? [angleMeasured] : []),
-    ...validSeries.map(p => p.angle),
+    ...(hasStandardY ? [sy] : []),
+    ...(hasAvgY ? [avgY] : []),
+    ...validSeries.map(p => p.yVal),
   ];
-  const rawMinY = allY.length ? Math.min(...allY) : -10;
-  const rawMaxY = allY.length ? Math.max(...allY) : 10;
-  const rangeY = (rawMaxY - rawMinY) || 10;
+  const rawMinY = allY.length ? Math.min(...allY) : -1;
+  const rawMaxY = allY.length ? Math.max(...allY) : 1;
+  const rangeY = (rawMaxY - rawMinY) || 1;
   const baseMinX = rawMinXIdx - 0.6, baseMaxX = rawMaxXIdx + 0.6;
   const baseMinY = rawMinY - rangeY * 0.25, baseMaxY = rawMaxY + rangeY * 0.25;
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
@@ -150,10 +145,10 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
     dragRef.current = null;
   };
 
-  const stdPy = hasStandard ? toPx(0, angleStandard).py : null;
-  const avgPy = hasAvg ? toPx(0, angleMeasured).py : null;
+  const stdPy = hasStandardY ? toPx(0, sy).py : null;
+  const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
-  const linePoints = validSeries.map(p => toPx(p.idx, p.angle));
+  const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
   const polylineStr = linePoints.map(pt => `${pt.px},${pt.py}`).join(" ");
 
   return (
@@ -161,7 +156,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>
-            มุมแต่ละจุดวัด เทียบกับค่ามาตรฐาน
+            Gain Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
           </div>
           <div style={{ fontSize: 10, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
         </div>
@@ -189,13 +184,33 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           </clipPath>
         </defs>
 
-        {/* Y grid lines (angle reference) — no numeric axis labels; exact values are shown on each point */}
+        {/* Y grid lines — kept unlabeled to avoid clutter */}
         {yTicks.map((t, i) => {
           const { py } = toPx(0, t);
           return (
             <line key={`gy-${i}`} x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
           );
         })}
+
+        {/* 0 reference line — the one fixed anchor so up/down orientation is never ambiguous,
+            especially when most values are negative */}
+        {minY <= 0 && 0 <= maxY && (() => {
+          const { py } = toPx(0, 0);
+          return (
+            <g>
+              <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#cbd5e1" strokeWidth="1.3" />
+              <text x={margin - 4} y={py + 3} fontSize="8.5" fill="#94a3b8" textAnchor="end">0</text>
+            </g>
+          );
+        })()}
+
+        {/* top/bottom range labels — minimal orientation without a full numbered axis */}
+        <text x={margin - 4} y={margin + 3} fontSize="8.5" fill="#cbd5e1" textAnchor="end">
+          {maxY.toFixed(2)}
+        </text>
+        <text x={margin - 4} y={height - margin + 1} fontSize="8.5" fill="#cbd5e1" textAnchor="end">
+          {minY.toFixed(2)}
+        </text>
 
         {/* X axis labels — point index */}
         {series.map((p) => {
@@ -215,7 +230,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
                 stroke="#6B21A8" strokeWidth="2" strokeDasharray="7 4" />
               <text x={size - margin - 4} y={stdPy - 5} fontSize="9" fill="#6B21A8" textAnchor="end" fontWeight="700">
-                มาตรฐาน {angleStandard.toFixed(1)}°
+                มาตรฐาน {sy.toFixed(2)}
               </text>
             </>
           )}
@@ -225,7 +240,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
                 stroke="#F97316" strokeWidth="1.5" strokeDasharray="2 3" />
               <text x={margin + 4} y={avgPy - 5} fontSize="9" fill="#c2410c" textAnchor="start" fontWeight="700">
-                เฉลี่ยที่วัดได้ {angleMeasured.toFixed(1)}°
+                เฉลี่ยที่วัดได้ {avgY.toFixed(2)}
               </text>
             </>
           )}
@@ -242,22 +257,21 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* each measured point, with angle + raw Gain X/Y + deviation-from-standard, and tooltip */}
+          {/* each measured point, with Gain Y + Gain X + deviation-from-standard, and tooltip */}
           {validSeries.map((p) => {
-            const { px, py } = toPx(p.idx, p.angle);
-            const devPct = angleStandard != null && angleStandard !== 0
-              ? (Math.abs(p.angle - angleStandard) / Math.abs(angleStandard)) * 100
-              : null;
+            const { px, py } = toPx(p.idx, p.yVal);
+            const devVal = hasStandardY ? p.yVal - sy : null;
+            const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
             return (
               <g key={p.idx}>
                 <circle cx={px} cy={py} r="4.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1">
-                  <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y} → มุม ${p.angle.toFixed(1)}°`}</title>
+                  <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                 </circle>
                 <text x={px} y={py - 16} fontSize="8.5" fill="#c2410c" textAnchor="middle" fontWeight="700">
-                  {p.angle.toFixed(1)}°{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
+                  Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
                 <text x={px} y={py - 7} fontSize="7.5" fill="#c2820c" textAnchor="middle">
-                  X={p.x}, Y={p.y}
+                  X={p.x}
                 </text>
               </g>
             );
@@ -273,7 +287,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               มาตรฐาน
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasStandardValue ? sx : "—"} &nbsp; Gain Y: {hasStandardValue ? sy : "—"}
+              Gain X: {hasStandardX ? sx : "—"} &nbsp; Gain Y: {hasStandardY ? sy : "—"}
             </div>
           </div>
           <div>
@@ -282,18 +296,18 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               ค่าเฉลี่ยที่วัดได้
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasAvgValue ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvgValue ? avgY.toFixed(3) : "—"}
+              Gain X: {hasAvgX ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvgY ? avgY.toFixed(3) : "—"}
             </div>
           </div>
         </div>
 
-        {angleDiff !== null ? (
+        {diff !== null ? (
           <div style={{
             padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
             fontWeight: 700, color: "#0f172a", fontSize: 13, display: "inline-block",
           }}>
-            เปลี่ยนไป {Math.abs(angleDiff).toFixed(1)}°
-            {angleDiffPercent !== null && ` (${angleDiffPercent.toFixed(1)}%)`}
+            Gain Y เปลี่ยนไป {Math.abs(diff).toFixed(3)}
+            {diffPercent !== null && ` (${diffPercent.toFixed(1)}%)`}
           </div>
         ) : (
           <div style={{ color: "#94a3b8", fontSize: 11 }}>
