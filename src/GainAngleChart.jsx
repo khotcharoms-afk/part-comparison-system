@@ -79,6 +79,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
   const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
   const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
+  const diffX = (hasStandardX && hasAvgX) ? (avgX - sx) : null;
+  const diffXPercent = (diffX !== null && sx !== 0) ? (Math.abs(diffX) / Math.abs(sx)) * 100 : null;
 
   // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
   const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
@@ -301,13 +303,26 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           </div>
         </div>
 
-        {diff !== null ? (
-          <div style={{
-            padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
-            fontWeight: 700, color: "#0f172a", fontSize: 13, display: "inline-block",
-          }}>
-            Gain Y เปลี่ยนไป {Math.abs(diff).toFixed(3)}
-            {diffPercent !== null && ` (${diffPercent.toFixed(1)}%)`}
+        {(diff !== null || diffX !== null) ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {diffX !== null && (
+              <div style={{
+                padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontWeight: 700, color: "#0f172a", fontSize: 13, display: "inline-block",
+              }}>
+                Gain X เปลี่ยนไป {Math.abs(diffX).toFixed(3)}
+                {diffXPercent !== null && ` (${diffXPercent.toFixed(1)}%)`}
+              </div>
+            )}
+            {diff !== null && (
+              <div style={{
+                padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontWeight: 700, color: "#0f172a", fontSize: 13, display: "inline-block",
+              }}>
+                Gain Y เปลี่ยนไป {Math.abs(diff).toFixed(3)}
+                {diffPercent !== null && ` (${diffPercent.toFixed(1)}%)`}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ color: "#94a3b8", fontSize: 11 }}>
