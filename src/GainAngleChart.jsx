@@ -226,6 +226,30 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
         </div>
       </div>
 
+      {/* Reference-value badges live OUTSIDE the plot canvas entirely — unlike an
+          in-chart corner box, they can never end up sitting on top of a data
+          point no matter what the values are or how the chart is zoomed/panned. */}
+      {(hasStandardY || hasAvgY) && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {hasStandardY && (
+            <span style={{
+              fontSize: 10.5, fontWeight: 700, color: "#475569", background: "#F1F5F9",
+              border: "1px solid #E2E8F0", borderRadius: 999, padding: "3px 10px",
+            }}>
+              มาตรฐาน {sy.toFixed(2)}
+            </span>
+          )}
+          {hasAvgY && (
+            <span style={{
+              fontSize: 10.5, fontWeight: 700, color: "#92400E", background: "#FEF3C7",
+              border: "1px solid #FDE68A", borderRadius: 999, padding: "3px 10px",
+            }}>
+              เฉลี่ยที่วัดได้ {avgY.toFixed(2)}
+            </span>
+          )}
+        </div>
+      )}
+
       <svg
         ref={svgRef}
         width="100%" height={height} viewBox={`0 0 ${size} ${height}`}
@@ -276,33 +300,10 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           );
         })}
 
-        {/* Fixed reference-value box, top-left corner — deliberately NOT tied to
-            the line's on-chart height (unlike the old inline labels), so it can
-            never end up sitting on top of a data point just because that point's
-            value happens to be close to the standard or the average */}
-        {(stdPy !== null || avgPy !== null) && (() => {
-          const rows = [];
-          if (stdPy !== null) rows.push({ text: `มาตรฐาน ${sy.toFixed(2)}`, color: "#475569" });
-          if (avgPy !== null) rows.push({ text: `เฉลี่ยที่วัดได้ ${avgY.toFixed(2)}`, color: "#92400E" });
-          const boxX = margin + 8, boxY = margin + 8;
-          const lineH = 16, boxW = 150, boxH = rows.length * lineH + 10;
-          return (
-            <g>
-              <rect x={boxX} y={boxY} width={boxW} height={boxH} rx="6"
-                fill="#ffffff" fillOpacity="0.92" stroke="#e2e8f0" strokeWidth="1" />
-              {rows.map((r, i) => (
-                <text key={i} x={boxX + 10} y={boxY + 17 + i * lineH} fontSize="10.5" fontWeight="700" fill={r.color}>
-                  {r.text}
-                </text>
-              ))}
-            </g>
-          );
-        })()}
-
         <g clipPath="url(#gac-clip)">
-          {/* standard reference line — flat, spans full width (label lives in the
-              fixed corner box below instead of on the line, so it never collides
-              with a data point that happens to sit near the same height) */}
+          {/* standard reference line — flat, spans full width (its value is shown
+              as a badge above the chart, not drawn on the line itself, so it can
+              never collide with a data point label) */}
           {stdPy !== null && (
             <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
               stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
