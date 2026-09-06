@@ -48,29 +48,75 @@ function niceTicks(min, max, count = 5) {
   return ticks;
 }
 
-// Builds a smooth SVG path ("d" attribute) through a series of points using a
-// Catmull-Rom-to-Bezier conversion, so the measured-value line curves gently
-// between points (like a wheel's profile) instead of connecting them with
-// sharp straight segments. Falls back to a straight line for 2 points.
+// Builds a smooth SVG path ("d" attribute) through a series of points using
+// monotone cubic (Fritsch–Carlson) interpolation, so the measured-value line
+// curves gently between points instead of connecting them with sharp straight
+// segments — WITHOUT overshooting past the data's local highs/lows.
+//
+// Note: a plain Catmull-Rom spline (the earlier approach here) computes each
+// segment's curvature using the neighboring points on both sides, so even two
+// points with the exact same value can get pulled into a visible bump/dip if
+// the point just before or after them differs. Monotone interpolation avoids
+// that: whenever consecutive points are equal (or the trend flattens), the
+// tangents are forced to zero and that stretch renders as a true flat line.
 function smoothPathFromPoints(pts) {
-  if (pts.length === 0) return "";
-  if (pts.length === 1) return "";
-  if (pts.length === 2) {
+  const n = pts.length;
+  if (n === 0 || n === 1) return "";
+  if (n === 2) {
     return `M${pts[0].px},${pts[0].py} L${pts[1].px},${pts[1].py}`;
   }
-  let d = `M${pts[0].px},${pts[0].py}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i === 0 ? i : i - 1];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
-    const cp1x = p1.px + (p2.px - p0.px) / 6;
-    const cp1y = p1.py + (p2.py - p0.py) / 6;
-    const cp2x = p2.px - (p3.px - p1.px) / 6;
-    const cp2y = p2.py - (p3.py - p1.py) / 6;
-    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.px},${p2.py}`;
+
+  const xs = pts.map(p => p.px);
+  const ys = pts.map(p => p.py);
+
+  // secant slope of each segment between consecutive points
+  const d = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = xs[i + 1] - xs[i];
+    d.push(dx === 0 ? 0 : (ys[i + 1] - ys[i]) / dx);
   }
-  return d;
+
+  // initial tangent at each point (average of neighboring secants; zero at
+  // any local flat/turning point so the curve doesn't overshoot through it)
+  const m = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    if (d[i - 1] === 0 || d[i] === 0 || (d[i - 1] > 0) !== (d[i] > 0)) {
+      m[i] = 0;
+    } else {
+      m[i] = (d[i - 1] + d[i]) / 2;
+    }
+  }
+
+  // Fritsch–Carlson step: clamp tangents so no segment can bulge past the
+  // range of its two endpoints
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const tau = 3 / Math.sqrt(s);
+      m[i] = tau * a * d[i];
+      m[i + 1] = tau * b * d[i];
+    }
+  }
+
+  let path = `M${xs[0]},${ys[0]}`;
+  for (let i = 0; i < n - 1; i++) {
+    const dx = xs[i + 1] - xs[i];
+    const cp1x = xs[i] + dx / 3;
+    const cp1y = ys[i] + (m[i] * dx) / 3;
+    const cp2x = xs[i + 1] - dx / 3;
+    const cp2y = ys[i + 1] - (m[i + 1] * dx) / 3;
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${xs[i + 1]},${ys[i + 1]}`;
+  }
+  return path;
 }
 
 const ZOOM_MIN = 1, ZOOM_MAX = 20;
