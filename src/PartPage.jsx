@@ -686,6 +686,11 @@ function InspectTab({ standards, inspections, currentUser }) {
           {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
           {" · "}คลิกเลือกช่องแล้วใช้คาลิปเปอร์ยิงค่าเข้าได้เลย (เลื่อนไปช่องถัดไปให้อัตโนมัติ)
         </div>
+        <style>{`
+          .gxy-input::-webkit-outer-spin-button,
+          .gxy-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+          .gxy-input { -moz-appearance: textfield; }
+        `}</style>
         <div style={{
           display: "grid",
           gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "280px minmax(0, 1fr)",
@@ -694,37 +699,39 @@ function InspectTab({ standards, inspections, currentUser }) {
           <div>
             <div style={{
               display: "grid", gridTemplateColumns: "1fr",
-              gap: "4px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
+              gap: "3px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
             }}>
               {gainPoints.map((p, i) => {
                 const isActiveX = activeTargetKey === `gain:${i}:x`;
                 const isActiveY = activeTargetKey === `gain:${i}:y`;
                 return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 9, color: "#94a3b8", width: 14, flexShrink: 0 }}>#{i + 1}</span>
                     <input
+                      className="gxy-input"
                       ref={el => (gainRefs.current[`${i}-x`] = el)}
                       type="number" placeholder="X" value={p.x} disabled={!selected}
                       onChange={e => updateGainPoint(i, "x", e.target.value)}
                       onFocus={() => setActiveTargetKey(`gain:${i}:x`)}
                       style={{
-                        flex: 1, minWidth: 0, borderRadius: 6,
+                        flex: 1, minWidth: 0, maxWidth: 68, borderRadius: 5,
                         border: isActiveX ? "1px solid #F97316" : "1px solid #e2e8f0",
                         boxShadow: isActiveX ? "0 0 0 2px #FFEDD5" : "none",
-                        padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
+                        padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
                         background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                       }}
                     />
                     <input
+                      className="gxy-input"
                       ref={el => (gainRefs.current[`${i}-y`] = el)}
                       type="number" placeholder="Y" value={p.y} disabled={!selected}
                       onChange={e => updateGainPoint(i, "y", e.target.value)}
                       onFocus={() => setActiveTargetKey(`gain:${i}:y`)}
                       style={{
-                        flex: 1, minWidth: 0, borderRadius: 6,
+                        flex: 1, minWidth: 0, maxWidth: 68, borderRadius: 5,
                         border: isActiveY ? "1px solid #F97316" : "1px solid #e2e8f0",
                         boxShadow: isActiveY ? "0 0 0 2px #FFEDD5" : "none",
-                        padding: "4px 6px", fontSize: 11, fontFamily: "inherit",
+                        padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
                         background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                       }}
                     />
