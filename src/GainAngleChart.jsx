@@ -272,6 +272,18 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           );
         })}
 
+        {/* X grid lines — a faint vertical line through each point index, like
+            graph paper, so it's easy to trace straight up/down to read a
+            point's Y value off the axis */}
+        {series.map((p) => {
+          const { px } = toPx(p.idx, 0);
+          if (px < margin - 1 || px > size - margin + 1) return null;
+          return (
+            <line key={`gx-${p.idx}`} x1={px} y1={margin} x2={px} y2={height - margin}
+              stroke="#f1f5f9" strokeWidth="1" />
+          );
+        })}
+
         {/* 0 reference line — the one fixed anchor so up/down orientation is never ambiguous,
             especially when most values are negative */}
         {minY <= 0 && 0 <= maxY && (() => {
