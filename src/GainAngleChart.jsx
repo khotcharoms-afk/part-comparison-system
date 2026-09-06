@@ -48,6 +48,31 @@ function niceTicks(min, max, count = 5) {
   return ticks;
 }
 
+// Builds a smooth SVG path ("d" attribute) through a series of points using a
+// Catmull-Rom-to-Bezier conversion, so the measured-value line curves gently
+// between points (like a wheel's profile) instead of connecting them with
+// sharp straight segments. Falls back to a straight line for 2 points.
+function smoothPathFromPoints(pts) {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return "";
+  if (pts.length === 2) {
+    return `M${pts[0].px},${pts[0].py} L${pts[1].px},${pts[1].py}`;
+  }
+  let d = `M${pts[0].px},${pts[0].py}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i === 0 ? i : i - 1];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+    const cp1x = p1.px + (p2.px - p0.px) / 6;
+    const cp1y = p1.py + (p2.py - p0.py) / 6;
+    const cp2x = p2.px - (p3.px - p1.px) / 6;
+    const cp2y = p2.py - (p3.py - p1.py) / 6;
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.px},${p2.py}`;
+  }
+  return d;
+}
+
 const ZOOM_MIN = 1, ZOOM_MAX = 20;
 
 /**
@@ -102,7 +127,11 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const minX = centerX - halfW, maxX = centerX + halfW;
   const minY = centerY - halfH, maxY = centerY + halfH;
 
-  const size = 520, height = 300, margin = 50;
+  // Enlarged default canvas (was 520x300) so the chart reads clearly at a glance
+  // without needing to zoom in first. Width still stretches to fill its container
+  // (see width="100%" on the <svg> below) — this mainly grows the rendered height
+  // and keeps text/markers proportioned to the bigger canvas.
+  const size = 760, height = 440, margin = 56;
   const plotW = size - margin * 2, plotH = height - margin * 2;
 
   const toPx = (x, y) => ({
@@ -151,16 +180,16 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
   const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
-  const polylineStr = linePoints.map(pt => `${pt.px},${pt.py}`).join(" ");
+  const smoothPathStr = smoothPathFromPoints(linePoints);
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
             Gain Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
           </div>
-          <div style={{ fontSize: 10, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={zoomOut} title="ซูมออก" style={zoomBtnStyle}>−</button>
@@ -201,16 +230,16 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           return (
             <g>
               <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#cbd5e1" strokeWidth="1.3" />
-              <text x={margin - 4} y={py + 3} fontSize="8.5" fill="#94a3b8" textAnchor="end">0</text>
+              <text x={margin - 4} y={py + 3} fontSize="10" fill="#94a3b8" textAnchor="end">0</text>
             </g>
           );
         })()}
 
         {/* top/bottom range labels — minimal orientation without a full numbered axis */}
-        <text x={margin - 4} y={margin + 3} fontSize="8.5" fill="#cbd5e1" textAnchor="end">
+        <text x={margin - 4} y={margin + 3} fontSize="10" fill="#cbd5e1" textAnchor="end">
           {maxY.toFixed(2)}
         </text>
-        <text x={margin - 4} y={height - margin + 1} fontSize="8.5" fill="#cbd5e1" textAnchor="end">
+        <text x={margin - 4} y={height - margin + 1} fontSize="10" fill="#cbd5e1" textAnchor="end">
           {minY.toFixed(2)}
         </text>
 
@@ -219,7 +248,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           const { px } = toPx(p.idx, minY);
           if (px < margin - 1 || px > size - margin + 1) return null;
           return (
-            <text key={`xt-${p.idx}`} x={px} y={height - margin + 16} fontSize="9" fill="#94a3b8" textAnchor="middle">
+            <text key={`xt-${p.idx}`} x={px} y={height - margin + 18} fontSize="10.5" fill="#94a3b8" textAnchor="middle">
               #{p.idx}
             </text>
           );
@@ -231,7 +260,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             <>
               <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
                 stroke="#6B21A8" strokeWidth="2" strokeDasharray="7 4" />
-              <text x={size - margin - 4} y={stdPy - 5} fontSize="9" fill="#6B21A8" textAnchor="end" fontWeight="700">
+              <text x={size - margin - 4} y={stdPy - 6} fontSize="10.5" fill="#6B21A8" textAnchor="end" fontWeight="700">
                 มาตรฐาน {sy.toFixed(2)}
               </text>
             </>
@@ -241,7 +270,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             <>
               <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
                 stroke="#F97316" strokeWidth="1.5" strokeDasharray="2 3" />
-              <text x={margin + 4} y={avgPy - 5} fontSize="9" fill="#c2410c" textAnchor="start" fontWeight="700">
+              <text x={margin + 4} y={avgPy - 6} fontSize="10.5" fill="#c2410c" textAnchor="start" fontWeight="700">
                 เฉลี่ยที่วัดได้ {avgY.toFixed(2)}
               </text>
             </>
@@ -253,9 +282,10 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               stroke="#FDBA74" strokeWidth="1" strokeDasharray="2 2" opacity="0.7" />
           ))}
 
-          {/* line connecting the raw entered points in order */}
+          {/* smooth curve through the raw entered points, in order — reads like a
+              wheel's profile curve instead of sharp straight segments */}
           {linePoints.length > 1 && (
-            <polyline points={polylineStr} fill="none" stroke="#FB923C" strokeWidth="2"
+            <path d={smoothPathStr} fill="none" stroke="#FB923C" strokeWidth="2.4"
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
@@ -266,13 +296,13 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
             return (
               <g key={p.idx}>
-                <circle cx={px} cy={py} r="4.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1">
+                <circle cx={px} cy={py} r="5.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1.2">
                   <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                 </circle>
-                <text x={px} y={py - 16} fontSize="8.5" fill="#c2410c" textAnchor="middle" fontWeight="700">
+                <text x={px} y={py - 18} fontSize="10" fill="#c2410c" textAnchor="middle" fontWeight="700">
                   Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
-                <text x={px} y={py - 7} fontSize="7.5" fill="#c2820c" textAnchor="middle">
+                <text x={px} y={py - 8} fontSize="8.5" fill="#c2820c" textAnchor="middle">
                   X={p.x}
                 </text>
               </g>
