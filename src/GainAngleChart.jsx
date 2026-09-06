@@ -53,7 +53,7 @@ function niceTicks(min, max, count = 5) {
 // curves gently between points instead of connecting them with sharp straight
 // segments — WITHOUT overshooting past the data's local highs/lows.
 //
-// Note: a plain Catmull-Rom spline (the earlier approach here) computes each
+// Note: a plain Catmull-Rom spline (an earlier approach here) computes each
 // segment's curvature using the neighboring points on both sides, so even two
 // points with the exact same value can get pulled into a visible bump/dip if
 // the point just before or after them differs. Monotone interpolation avoids
@@ -122,14 +122,15 @@ function smoothPathFromPoints(pts) {
 const ZOOM_MIN = 1, ZOOM_MAX = 20;
 
 /**
- * True X–Y scatter/line chart:
- * X axis = the actual Gain X value entered at each point (not just its sequence number)
+ * Horizontal "run chart" — like a tire wear-profile readout:
+ * X axis = point number (#1..#N, position measured around the wheel, in the
+ * order each point was entered)
  * Y axis = the raw Gain Y value entered at that point
- * Points are still connected in the order they were entered (measurement order around
- * the wheel), so if X isn't increasing throughout that sequence the line can zigzag
- * left/right — that reflects the real X,Y readings rather than an artifact.
- * A flat slate reference line marks the standard's average Gain Y, with a thin amber
- * line marking the average of what was actually measured.
+ * A flat slate reference line marks the standard's average Gain Y so every point's
+ * deviation from spec is visible at a glance, with a thin amber line marking the
+ * average of what was actually measured. Both reference values are shown as
+ * badges above the chart (not drawn on the line itself), so they never collide
+ * with a data point's label.
  */
 export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
   const [zoom, setZoom] = useState(1);
@@ -143,41 +144,27 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
   const totalPoints = points?.length || 0;
   const series = (points || []).map((p, i) => {
-    const xVal = parseFloat(p.x);
     const yVal = parseFloat(p.y);
-    return {
-      idx: i + 1, x: p.x, y: p.y,
-      xVal: isNaN(xVal) ? null : xVal,
-      yVal: isNaN(yVal) ? null : yVal,
-    };
+    return { idx: i + 1, x: p.x, y: p.y, yVal: isNaN(yVal) ? null : yVal };
   });
-  // A point needs BOTH a valid X and Y to be placed now that X drives its
-  // horizontal position (previously only Y was required, since X was just a label).
-  const validSeries = series.filter(p => p.xVal !== null && p.yVal !== null);
+  const validSeries = series.filter(p => p.yVal !== null);
 
   const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
   const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
   const diffX = (hasStandardX && hasAvgX) ? (avgX - sx) : null;
   const diffXPercent = (diffX !== null && sx !== 0) ? (Math.abs(diffX) / Math.abs(sx)) * 100 : null;
 
-  // Base (zoom = 1) data bounds — both axes now derived from actual values.
-  const allX = [
-    ...(hasStandardX ? [sx] : []),
-    ...(hasAvgX ? [avgX] : []),
-    ...validSeries.map(p => p.xVal),
-  ];
+  // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
+  const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
   const allY = [
     ...(hasStandardY ? [sy] : []),
     ...(hasAvgY ? [avgY] : []),
     ...validSeries.map(p => p.yVal),
   ];
-  const rawMinX = allX.length ? Math.min(...allX) : 0;
-  const rawMaxX = allX.length ? Math.max(...allX) : 1;
   const rawMinY = allY.length ? Math.min(...allY) : -1;
   const rawMaxY = allY.length ? Math.max(...allY) : 1;
-  const rangeX = (rawMaxX - rawMinX) || 1;
   const rangeY = (rawMaxY - rawMinY) || 1;
-  const baseMinX = rawMinX - rangeX * 0.2, baseMaxX = rawMaxX + rangeX * 0.2;
+  const baseMinX = rawMinXIdx - 0.6, baseMaxX = rawMaxXIdx + 0.6;
   const baseMinY = rawMinY - rangeY * 0.25, baseMaxY = rawMaxY + rangeY * 0.25;
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
@@ -200,7 +187,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   });
 
   const yTicks = niceTicks(minY, maxY);
-  const xTicks = niceTicks(minX, maxX);
 
   const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
@@ -222,7 +208,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const stdPy = hasStandardY ? toPx(0, sy).py : null;
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
-  const linePoints = validSeries.map(p => toPx(p.xVal, p.yVal));
+  const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
   const smoothPathStr = smoothPathFromPoints(linePoints);
 
   return (
@@ -230,7 +216,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
-            Gain X/Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
+            Gain Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
           </div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
         </div>
@@ -243,9 +229,9 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
         </div>
       </div>
 
-      {/* Reference-value badges live OUTSIDE the plot canvas entirely — unlike an
-          in-chart corner box, they can never end up sitting on top of a data
-          point no matter what the values are or how the chart is zoomed/panned. */}
+      {/* Reference-value badges live OUTSIDE the plot canvas entirely — they can
+          never end up sitting on top of a data point no matter what the values
+          are or how the chart is zoomed. */}
       {(hasStandardY || hasAvgY) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
           {hasStandardY && (
@@ -276,10 +262,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           <clipPath id="gac-clip">
             <rect x={margin} y={margin} width={plotW} height={plotH} />
           </clipPath>
-          <marker id="gac-arrow" viewBox="0 0 10 10" refX="8" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="#1D4ED8" />
-          </marker>
         </defs>
 
         {/* Y grid lines — kept unlabeled to avoid clutter */}
@@ -310,25 +292,20 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {minY.toFixed(2)}
         </text>
 
-        {/* X grid lines + tick labels — X is now the actual Gain X value, not a
-            sequence number, so it lines up with real measured positions */}
-        {xTicks.map((t, i) => {
-          const { px } = toPx(t, minY);
+        {/* X axis labels — point index */}
+        {series.map((p) => {
+          const { px } = toPx(p.idx, minY);
           if (px < margin - 1 || px > size - margin + 1) return null;
           return (
-            <g key={`gx-${i}`}>
-              <line x1={px} y1={margin} x2={px} y2={height - margin} stroke="#f8fafc" strokeWidth="1" />
-              <text x={px} y={height - margin + 18} fontSize="10" fill="#94a3b8" textAnchor="middle">
-                {t.toFixed(2)}
-              </text>
-            </g>
+            <text key={`xt-${p.idx}`} x={px} y={height - margin + 18} fontSize="10.5" fill="#94a3b8" textAnchor="middle">
+              #{p.idx}
+            </text>
           );
         })}
 
         <g clipPath="url(#gac-clip)">
           {/* standard reference line — flat, spans full width (its value is shown
-              as a badge above the chart, not drawn on the line itself, so it can
-              never collide with a data point label) */}
+              as a badge above the chart, not drawn on the line itself) */}
           {stdPy !== null && (
             <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
               stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
@@ -352,44 +329,21 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* direction arrows — a short marker at the midpoint between each
-              consecutively-entered point and the next, so the measurement
-              sequence is unambiguous even when the line doubles back on
-              itself (since X is now the real value, not always increasing) */}
-          {linePoints.slice(0, -1).map((p0, i) => {
-            const p1 = linePoints[i + 1];
-            const dx = p1.px - p0.px, dy = p1.py - p0.py;
-            const len = Math.hypot(dx, dy) || 1;
-            const ux = dx / len, uy = dy / len;
-            const mx = (p0.px + p1.px) / 2, my = (p0.py + p1.py) / 2;
-            const half = 5;
-            return (
-              <line key={`arrow-${i}`}
-                x1={mx - ux * half} y1={my - uy * half}
-                x2={mx + ux * half} y2={my + uy * half}
-                stroke="#1D4ED8" strokeWidth="2.2" markerEnd="url(#gac-arrow)" />
-            );
-          })}
-
-          {/* each measured point, positioned by its real (X, Y). A bold numbered
-              pin (not a faint tag) marks entry order, so it stays readable even
-              where lines cross back over themselves. */}
+          {/* each measured point, with Gain Y + Gain X + deviation-from-standard, and tooltip */}
           {validSeries.map((p) => {
-            const { px, py } = toPx(p.xVal, p.yVal);
+            const { px, py } = toPx(p.idx, p.yVal);
             const devVal = hasStandardY ? p.yVal - sy : null;
             const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
             return (
               <g key={p.idx}>
                 <circle cx={px} cy={py} r="5.5" fill="#93C5FD" stroke="#2563EB" strokeWidth="1.2">
-                  <title>{`ลำดับที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
+                  <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                 </circle>
                 <text x={px} y={py - 18} fontSize="10" fill="#1E3A8A" textAnchor="middle" fontWeight="700">
                   Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
-                {/* order pin — offset up-right from the point so it doesn't sit on top of it */}
-                <circle cx={px + 11} cy={py - 11} r="8" fill="#1E3A8A" stroke="#fff" strokeWidth="1.5" />
-                <text x={px + 11} y={py - 8} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">
-                  {p.idx}
+                <text x={px} y={py - 8} fontSize="8.5" fill="#2563EB" textAnchor="middle">
+                  X={p.x}
                 </text>
               </g>
             );
