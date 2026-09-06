@@ -281,8 +281,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {stdPy !== null && (
             <>
               <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
-                stroke="#6B21A8" strokeWidth="2" strokeDasharray="7 4" />
-              <text x={size - margin - 4} y={stdPy - 6} fontSize="10.5" fill="#6B21A8" textAnchor="end" fontWeight="700">
+                stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
+              <text x={size - margin - 4} y={stdPy - 6} fontSize="10.5" fill="#475569" textAnchor="end" fontWeight="700">
                 มาตรฐาน {sy.toFixed(2)}
               </text>
             </>
@@ -291,8 +291,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {avgPy !== null && (
             <>
               <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
-                stroke="#F97316" strokeWidth="1.5" strokeDasharray="2 3" />
-              <text x={margin + 4} y={avgPy - 6} fontSize="10.5" fill="#c2410c" textAnchor="start" fontWeight="700">
+                stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 3" />
+              <text x={margin + 4} y={avgPy - 6} fontSize="10.5" fill="#92400E" textAnchor="start" fontWeight="700">
                 เฉลี่ยที่วัดได้ {avgY.toFixed(2)}
               </text>
             </>
@@ -301,13 +301,13 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {/* deviation connector from each point down/up to the standard line */}
           {stdPy !== null && linePoints.map((pt, i) => (
             <line key={`dev-${i}`} x1={pt.px} y1={pt.py} x2={pt.px} y2={stdPy}
-              stroke="#FDBA74" strokeWidth="1" strokeDasharray="2 2" opacity="0.7" />
+              stroke="#BFDBFE" strokeWidth="1" strokeDasharray="2 2" opacity="0.8" />
           ))}
 
           {/* smooth curve through the raw entered points, in order — reads like a
               wheel's profile curve instead of sharp straight segments */}
           {linePoints.length > 1 && (
-            <path d={smoothPathStr} fill="none" stroke="#FB923C" strokeWidth="2.4"
+            <path d={smoothPathStr} fill="none" stroke="#2563EB" strokeWidth="2.4"
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
@@ -318,13 +318,13 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
             return (
               <g key={p.idx}>
-                <circle cx={px} cy={py} r="5.5" fill="#FDBA74" stroke="#F97316" strokeWidth="1.2">
+                <circle cx={px} cy={py} r="5.5" fill="#93C5FD" stroke="#2563EB" strokeWidth="1.2">
                   <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                 </circle>
-                <text x={px} y={py - 18} fontSize="10" fill="#c2410c" textAnchor="middle" fontWeight="700">
+                <text x={px} y={py - 18} fontSize="10" fill="#1E3A8A" textAnchor="middle" fontWeight="700">
                   Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
-                <text x={px} y={py - 8} fontSize="8.5" fill="#c2820c" textAnchor="middle">
+                <text x={px} y={py - 8} fontSize="8.5" fill="#2563EB" textAnchor="middle">
                   X={p.x}
                 </text>
               </g>
@@ -336,8 +336,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 8 }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#4c1d95" }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#6B21A8", flexShrink: 0 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#64748B", flexShrink: 0 }} />
               มาตรฐาน
             </div>
             <div style={{ marginLeft: 16 }}>
@@ -345,8 +345,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             </div>
           </div>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#c2410c" }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F97316", flexShrink: 0 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#92400E" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#D97706", flexShrink: 0 }} />
               ค่าเฉลี่ยที่วัดได้
             </div>
             <div style={{ marginLeft: 16 }}>
