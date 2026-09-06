@@ -132,7 +132,7 @@ const ZOOM_MIN = 1, ZOOM_MAX = 20;
  * badges above the chart (not drawn on the line itself), so they never collide
  * with a data point's label.
  */
-export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
+export default function GainAngleChart({ standardX, standardY, standardPoints, points, avgX, avgY, count }) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
@@ -151,6 +151,17 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   });
   const validSeries = series.filter(p => p.yVal !== null);
 
+  // Optional per-point standard values (same shape as `points`) — when there
+  // are enough of them, the standard is drawn as a curve instead of a single
+  // flat line, so a standard that was entered as a real tire-like profile
+  // actually reads as one on the chart.
+  const stdSeries = (standardPoints || []).map((p, i) => {
+    const yVal = parseFloat(p?.y);
+    return { idx: i + 1, yVal: isNaN(yVal) ? null : yVal };
+  });
+  const validStdSeries = stdSeries.filter(p => p.yVal !== null);
+  const hasStandardCurve = validStdSeries.length >= 2;
+
   const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
   const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
   const diffX = (hasStandardX && hasAvgX) ? (avgX - sx) : null;
@@ -162,6 +173,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
     ...(hasStandardY ? [sy] : []),
     ...(hasAvgY ? [avgY] : []),
     ...validSeries.map(p => p.yVal),
+    ...validStdSeries.map(p => p.yVal),
   ];
   const rawMinY = allY.length ? Math.min(...allY) : -1;
   const rawMaxY = allY.length ? Math.max(...allY) : 1;
@@ -239,6 +251,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
   const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
   const smoothPathStr = smoothPathFromPoints(linePoints);
+  const stdLinePoints = validStdSeries.map(p => toPx(p.idx, p.yVal));
+  const stdSmoothPathStr = smoothPathFromPoints(stdLinePoints);
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
@@ -349,11 +363,19 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
         })}
 
         <g clipPath="url(#gac-clip)">
-          {/* standard reference line — flat, spans full width (its value is shown
-              as a badge above the chart, not drawn on the line itself) */}
-          {stdPy !== null && (
-            <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
-              stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
+          {/* standard reference line — a curve through the standard's own
+              per-point values when available (its value is shown as a badge
+              above the chart, not drawn as on-line text). Falls back to a
+              flat line at the average when no per-point standard data exists,
+              so older standards (average-only) still render correctly. */}
+          {hasStandardCurve ? (
+            <path d={stdSmoothPathStr} fill="none" stroke="#64748B" strokeWidth="2"
+              strokeDasharray="7 4" strokeLinejoin="round" strokeLinecap="round" />
+          ) : (
+            stdPy !== null && (
+              <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
+                stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
+            )
           )}
           {/* average measured line — flat, spans full width */}
           {avgPy !== null && (
@@ -361,11 +383,21 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 3" />
           )}
 
-          {/* deviation connector from each point down/up to the standard line */}
-          {stdPy !== null && linePoints.map((pt, i) => (
-            <line key={`dev-${i}`} x1={pt.px} y1={pt.py} x2={pt.px} y2={stdPy}
-              stroke="#BFDBFE" strokeWidth="1" strokeDasharray="2 2" opacity="0.8" />
-          ))}
+          {/* deviation connector from each point down/up to the standard —
+              follows the matching standard curve point (by index) when a
+              standard curve exists, otherwise falls back to the flat average line */}
+          {(stdPy !== null || hasStandardCurve) && linePoints.map((pt, i) => {
+            const measuredIdx = validSeries[i].idx;
+            const matchStd = hasStandardCurve
+              ? validStdSeries.find(sp => sp.idx === measuredIdx)
+              : null;
+            const targetPy = matchStd ? toPx(0, matchStd.yVal).py : stdPy;
+            if (targetPy == null) return null;
+            return (
+              <line key={`dev-${i}`} x1={pt.px} y1={pt.py} x2={pt.px} y2={targetPy}
+                stroke="#BFDBFE" strokeWidth="1" strokeDasharray="2 2" opacity="0.8" />
+            );
+          })}
 
           {/* smooth curve through the raw entered points, in order — reads like a
               wheel's profile curve instead of sharp straight segments */}
