@@ -745,6 +745,7 @@ function InspectTab({ standards, inspections, currentUser }) {
             <div style={{ position: isMobileGrid() === "1fr" ? "static" : "sticky", top: 12 }}>
               <GainAngleChart
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
+                standardPoints={selected.specs?.gainPoints}
                 points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
               />
             </div>
