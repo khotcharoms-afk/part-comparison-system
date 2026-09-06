@@ -122,12 +122,14 @@ function smoothPathFromPoints(pts) {
 const ZOOM_MIN = 1, ZOOM_MAX = 20;
 
 /**
- * Horizontal "run chart" — like a tire wear-profile readout:
- * X axis = point number (#1..#N, position measured around the wheel)
+ * True X–Y scatter/line chart:
+ * X axis = the actual Gain X value entered at each point (not just its sequence number)
  * Y axis = the raw Gain Y value entered at that point
- * A flat purple reference line marks the standard's average Gain Y so every point's
- * deviation from spec is visible at a glance, with a thin orange line marking the
- * average of what was actually measured.
+ * Points are still connected in the order they were entered (measurement order around
+ * the wheel), so if X isn't increasing throughout that sequence the line can zigzag
+ * left/right — that reflects the real X,Y readings rather than an artifact.
+ * A flat slate reference line marks the standard's average Gain Y, with a thin amber
+ * line marking the average of what was actually measured.
  */
 export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
   const [zoom, setZoom] = useState(1);
@@ -141,27 +143,41 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
 
   const totalPoints = points?.length || 0;
   const series = (points || []).map((p, i) => {
+    const xVal = parseFloat(p.x);
     const yVal = parseFloat(p.y);
-    return { idx: i + 1, x: p.x, y: p.y, yVal: isNaN(yVal) ? null : yVal };
+    return {
+      idx: i + 1, x: p.x, y: p.y,
+      xVal: isNaN(xVal) ? null : xVal,
+      yVal: isNaN(yVal) ? null : yVal,
+    };
   });
-  const validSeries = series.filter(p => p.yVal !== null);
+  // A point needs BOTH a valid X and Y to be placed now that X drives its
+  // horizontal position (previously only Y was required, since X was just a label).
+  const validSeries = series.filter(p => p.xVal !== null && p.yVal !== null);
 
   const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
   const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
   const diffX = (hasStandardX && hasAvgX) ? (avgX - sx) : null;
   const diffXPercent = (diffX !== null && sx !== 0) ? (Math.abs(diffX) / Math.abs(sx)) * 100 : null;
 
-  // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
-  const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
+  // Base (zoom = 1) data bounds — both axes now derived from actual values.
+  const allX = [
+    ...(hasStandardX ? [sx] : []),
+    ...(hasAvgX ? [avgX] : []),
+    ...validSeries.map(p => p.xVal),
+  ];
   const allY = [
     ...(hasStandardY ? [sy] : []),
     ...(hasAvgY ? [avgY] : []),
     ...validSeries.map(p => p.yVal),
   ];
+  const rawMinX = allX.length ? Math.min(...allX) : 0;
+  const rawMaxX = allX.length ? Math.max(...allX) : 1;
   const rawMinY = allY.length ? Math.min(...allY) : -1;
   const rawMaxY = allY.length ? Math.max(...allY) : 1;
+  const rangeX = (rawMaxX - rawMinX) || 1;
   const rangeY = (rawMaxY - rawMinY) || 1;
-  const baseMinX = rawMinXIdx - 0.6, baseMaxX = rawMaxXIdx + 0.6;
+  const baseMinX = rawMinX - rangeX * 0.2, baseMaxX = rawMaxX + rangeX * 0.2;
   const baseMinY = rawMinY - rangeY * 0.25, baseMaxY = rawMaxY + rangeY * 0.25;
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
@@ -184,6 +200,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   });
 
   const yTicks = niceTicks(minY, maxY);
+  const xTicks = niceTicks(minX, maxX);
 
   const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
@@ -205,7 +222,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const stdPy = hasStandardY ? toPx(0, sy).py : null;
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
-  const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
+  const linePoints = validSeries.map(p => toPx(p.xVal, p.yVal));
   const smoothPathStr = smoothPathFromPoints(linePoints);
 
   return (
@@ -213,7 +230,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
-            Gain Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
+            Gain X/Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
           </div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
         </div>
@@ -289,14 +306,18 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           {minY.toFixed(2)}
         </text>
 
-        {/* X axis labels — point index */}
-        {series.map((p) => {
-          const { px } = toPx(p.idx, minY);
+        {/* X grid lines + tick labels — X is now the actual Gain X value, not a
+            sequence number, so it lines up with real measured positions */}
+        {xTicks.map((t, i) => {
+          const { px } = toPx(t, minY);
           if (px < margin - 1 || px > size - margin + 1) return null;
           return (
-            <text key={`xt-${p.idx}`} x={px} y={height - margin + 18} fontSize="10.5" fill="#94a3b8" textAnchor="middle">
-              #{p.idx}
-            </text>
+            <g key={`gx-${i}`}>
+              <line x1={px} y1={margin} x2={px} y2={height - margin} stroke="#f8fafc" strokeWidth="1" />
+              <text x={px} y={height - margin + 18} fontSize="10" fill="#94a3b8" textAnchor="middle">
+                {t.toFixed(2)}
+              </text>
+            </g>
           );
         })}
 
@@ -327,9 +348,10 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* each measured point, with Gain Y + Gain X + deviation-from-standard, and tooltip */}
+          {/* each measured point, positioned by its real (X, Y), with a small
+              order tag (#N) so the original measurement sequence is still visible */}
           {validSeries.map((p) => {
-            const { px, py } = toPx(p.idx, p.yVal);
+            const { px, py } = toPx(p.xVal, p.yVal);
             const devVal = hasStandardY ? p.yVal - sy : null;
             const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
             return (
@@ -340,8 +362,8 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
                 <text x={px} y={py - 18} fontSize="10" fill="#1E3A8A" textAnchor="middle" fontWeight="700">
                   Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
-                <text x={px} y={py - 8} fontSize="8.5" fill="#2563EB" textAnchor="middle">
-                  X={p.x}
+                <text x={px} y={py + 16} fontSize="8" fill="#94a3b8" textAnchor="middle">
+                  #{p.idx}
                 </text>
               </g>
             );
