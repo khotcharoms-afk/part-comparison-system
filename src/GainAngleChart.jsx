@@ -276,6 +276,10 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           <clipPath id="gac-clip">
             <rect x={margin} y={margin} width={plotW} height={plotH} />
           </clipPath>
+          <marker id="gac-arrow" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#1D4ED8" />
+          </marker>
         </defs>
 
         {/* Y grid lines — kept unlabeled to avoid clutter */}
@@ -348,8 +352,28 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* each measured point, positioned by its real (X, Y), with a small
-              order tag (#N) so the original measurement sequence is still visible */}
+          {/* direction arrows — a short marker at the midpoint between each
+              consecutively-entered point and the next, so the measurement
+              sequence is unambiguous even when the line doubles back on
+              itself (since X is now the real value, not always increasing) */}
+          {linePoints.slice(0, -1).map((p0, i) => {
+            const p1 = linePoints[i + 1];
+            const dx = p1.px - p0.px, dy = p1.py - p0.py;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len;
+            const mx = (p0.px + p1.px) / 2, my = (p0.py + p1.py) / 2;
+            const half = 5;
+            return (
+              <line key={`arrow-${i}`}
+                x1={mx - ux * half} y1={my - uy * half}
+                x2={mx + ux * half} y2={my + uy * half}
+                stroke="#1D4ED8" strokeWidth="2.2" markerEnd="url(#gac-arrow)" />
+            );
+          })}
+
+          {/* each measured point, positioned by its real (X, Y). A bold numbered
+              pin (not a faint tag) marks entry order, so it stays readable even
+              where lines cross back over themselves. */}
           {validSeries.map((p) => {
             const { px, py } = toPx(p.xVal, p.yVal);
             const devVal = hasStandardY ? p.yVal - sy : null;
@@ -357,13 +381,15 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
             return (
               <g key={p.idx}>
                 <circle cx={px} cy={py} r="5.5" fill="#93C5FD" stroke="#2563EB" strokeWidth="1.2">
-                  <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
+                  <title>{`ลำดับที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
                 </circle>
                 <text x={px} y={py - 18} fontSize="10" fill="#1E3A8A" textAnchor="middle" fontWeight="700">
                   Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
                 </text>
-                <text x={px} y={py + 16} fontSize="8" fill="#94a3b8" textAnchor="middle">
-                  #{p.idx}
+                {/* order pin — offset up-right from the point so it doesn't sit on top of it */}
+                <circle cx={px + 11} cy={py - 11} r="8" fill="#1E3A8A" stroke="#fff" strokeWidth="1.5" />
+                <text x={px + 11} y={py - 8} fontSize="9" fill="#fff" textAnchor="middle" fontWeight="700">
+                  {p.idx}
                 </text>
               </g>
             );
