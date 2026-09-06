@@ -131,8 +131,6 @@ const ZOOM_MIN = 1, ZOOM_MAX = 20;
  */
 export default function GainAngleChart({ standardX, standardY, points, avgX, avgY, count }) {
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragRef = useRef(null);
   const svgRef = useRef(null);
 
   const sx = parseFloat(standardX), sy = parseFloat(standardY);
@@ -168,7 +166,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
 
-  const centerX = baseCenterX + pan.x, centerY = baseCenterY + pan.y;
+  const centerX = baseCenterX, centerY = baseCenterY;
   const halfW = baseHalfW / zoom, halfH = baseHalfH / zoom;
   const minX = centerX - halfW, maxX = centerX + halfW;
   const minY = centerY - halfH, maxY = centerY + halfH;
@@ -190,7 +188,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
   const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
   const zoomOut = () => setZoom(z => clampZoom(z / 1.5));
-  const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const resetView = () => { setZoom(1); };
 
   useEffect(() => {
     const el = svgRef.current;
@@ -203,24 +201,6 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
   }, []);
-
-  const pxPerUnitX = plotW / (maxX - minX);
-  const pxPerUnitY = plotH / (maxY - minY);
-
-  const handlePointerDown = (e) => {
-    svgRef.current?.setPointerCapture?.(e.pointerId);
-    dragRef.current = { startClientX: e.clientX, startClientY: e.clientY, startPan: pan, pxPerUnitX, pxPerUnitY };
-  };
-  const handlePointerMove = (e) => {
-    if (!dragRef.current) return;
-    const { startClientX, startClientY, startPan, pxPerUnitX: ppuX, pxPerUnitY: ppuY } = dragRef.current;
-    const dPx = e.clientX - startClientX, dPy = e.clientY - startClientY;
-    setPan({ x: startPan.x - dPx / ppuX, y: startPan.y + dPy / ppuY });
-  };
-  const handlePointerUp = (e) => {
-    svgRef.current?.releasePointerCapture?.(e.pointerId);
-    dragRef.current = null;
-  };
 
   const stdPy = hasStandardY ? toPx(0, sy).py : null;
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
@@ -249,11 +229,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
       <svg
         ref={svgRef}
         width="100%" height={height} viewBox={`0 0 ${size} ${height}`}
-        style={{ touchAction: "none", cursor: "grab", background: "#fcfdff", borderRadius: 8, display: "block" }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        style={{ background: "#fcfdff", borderRadius: 8, display: "block" }}
       >
         <defs>
           <clipPath id="gac-clip">
@@ -406,7 +382,7 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           </div>
         )}
         <div style={{ fontSize: 9.5, color: "#cbd5e1", marginTop: 8 }}>
-          ลากเพื่อเลื่อนมุมมอง · scroll/ปุ่ม +− เพื่อซูม · เส้นประบางๆ ที่จุด = ระยะห่างจากค่ามาตรฐาน
+          scroll/ปุ่ม +− เพื่อซูม · เส้นประบางๆ ที่จุด = ระยะห่างจากค่ามาตรฐาน
         </div>
       </div>
     </div>
