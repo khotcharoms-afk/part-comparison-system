@@ -125,7 +125,7 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
         </TabButton>
       </div>
 
-      <div style={{ padding: 16, maxWidth: 880, margin: "0 auto" }}>
+      <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto" }}>
         {loading ? (
           <div style={{ textAlign: "center", color: "#94a3b8", padding: 40 }}>กำลังโหลด...</div>
         ) : tab === "standards" ? (
@@ -688,7 +688,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         </div>
         <div style={{
           display: "grid",
-          gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "minmax(260px, 340px) 1fr",
+          gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "280px minmax(0, 1fr)",
           gap: 16, alignItems: "start",
         }}>
           <div>
