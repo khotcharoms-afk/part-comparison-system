@@ -369,8 +369,8 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               flat line at the average when no per-point standard data exists,
               so older standards (average-only) still render correctly. */}
           {hasStandardCurve ? (
-            <path d={stdSmoothPathStr} fill="none" stroke="#64748B" strokeWidth="2"
-              strokeDasharray="7 4" strokeLinejoin="round" strokeLinecap="round" />
+            <path d={stdSmoothPathStr} fill="none" stroke="#64748B" strokeWidth="2.4"
+              strokeLinejoin="round" strokeLinecap="round" />
           ) : (
             stdPy !== null && (
               <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
