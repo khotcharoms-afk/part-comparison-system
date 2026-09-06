@@ -276,26 +276,41 @@ export default function GainAngleChart({ standardX, standardY, points, avgX, avg
           );
         })}
 
+        {/* Fixed reference-value box, top-left corner — deliberately NOT tied to
+            the line's on-chart height (unlike the old inline labels), so it can
+            never end up sitting on top of a data point just because that point's
+            value happens to be close to the standard or the average */}
+        {(stdPy !== null || avgPy !== null) && (() => {
+          const rows = [];
+          if (stdPy !== null) rows.push({ text: `มาตรฐาน ${sy.toFixed(2)}`, color: "#475569" });
+          if (avgPy !== null) rows.push({ text: `เฉลี่ยที่วัดได้ ${avgY.toFixed(2)}`, color: "#92400E" });
+          const boxX = margin + 8, boxY = margin + 8;
+          const lineH = 16, boxW = 150, boxH = rows.length * lineH + 10;
+          return (
+            <g>
+              <rect x={boxX} y={boxY} width={boxW} height={boxH} rx="6"
+                fill="#ffffff" fillOpacity="0.92" stroke="#e2e8f0" strokeWidth="1" />
+              {rows.map((r, i) => (
+                <text key={i} x={boxX + 10} y={boxY + 17 + i * lineH} fontSize="10.5" fontWeight="700" fill={r.color}>
+                  {r.text}
+                </text>
+              ))}
+            </g>
+          );
+        })()}
+
         <g clipPath="url(#gac-clip)">
-          {/* standard reference line — flat, spans full width */}
+          {/* standard reference line — flat, spans full width (label lives in the
+              fixed corner box below instead of on the line, so it never collides
+              with a data point that happens to sit near the same height) */}
           {stdPy !== null && (
-            <>
-              <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
-                stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
-              <text x={size - margin - 4} y={stdPy - 6} fontSize="10.5" fill="#475569" textAnchor="end" fontWeight="700">
-                มาตรฐาน {sy.toFixed(2)}
-              </text>
-            </>
+            <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
+              stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
           )}
           {/* average measured line — flat, spans full width */}
           {avgPy !== null && (
-            <>
-              <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
-                stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 3" />
-              <text x={margin + 4} y={avgPy - 6} fontSize="10.5" fill="#92400E" textAnchor="start" fontWeight="700">
-                เฉลี่ยที่วัดได้ {avgY.toFixed(2)}
-              </text>
-            </>
+            <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
+              stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 3" />
           )}
 
           {/* deviation connector from each point down/up to the standard line */}
