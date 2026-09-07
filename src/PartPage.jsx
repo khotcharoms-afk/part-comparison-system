@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, forwardRef } from "react";
+ลimport { useState, useEffect, useMemo, useRef, forwardRef } from "react";
 import {
   collection, addDoc, onSnapshot, query, orderBy,
   doc, updateDoc, deleteDoc, serverTimestamp
@@ -699,7 +699,7 @@ function InspectTab({ standards, inspections, currentUser }) {
           <div>
             <div style={{
               display: "grid", gridTemplateColumns: "1fr",
-              gap: "3px", maxHeight: 360, overflowY: "auto", paddingRight: 4,
+              gap: "3px", paddingRight: 4,
             }}>
               {gainPoints.map((p, i) => {
                 const isActiveX = activeTargetKey === `gain:${i}:x`;
