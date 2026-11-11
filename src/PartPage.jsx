@@ -822,6 +822,7 @@ function InspectTab({ standards, inspections, currentUser }) {
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
                 standardPoints={selected.specs?.gainPoints}
                 points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
+                thresholds={selected.thresholds}
               />
             </div>
           )}

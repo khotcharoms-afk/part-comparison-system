@@ -132,7 +132,16 @@ const ZOOM_MIN = 1, ZOOM_MAX = 20;
  * badges above the chart (not drawn on the line itself), so they never collide
  * with a data point's label.
  */
-export default function GainAngleChart({ standardX, standardY, standardPoints, points, avgX, avgY, count }) {
+const POINT_STATUS = {
+  ok: { fill: "#93C5FD", stroke: "#2563EB", text: "#1E3A8A" },
+  warning: { fill: "#FCD34D", stroke: "#D97706", text: "#92400E" },
+  critical: { fill: "#FCA5A5", stroke: "#DC2626", text: "#991B1B" },
+};
+
+export default function GainAngleChart({ standardX, standardY, standardPoints, points, avgX, avgY, count, thresholds }) {
+  const warnPct = Number(thresholds?.warning) || 5;
+  const critPct = Number(thresholds?.critical) || 10;
+  const [activeIdx, setActiveIdx] = useState(null); // point whose label is shown on hover/tap
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
@@ -167,6 +176,31 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const diffX = (hasStandardX && hasAvgX) ? (avgX - sx) : null;
   const diffXPercent = (diffX !== null && sx !== 0) ? (Math.abs(diffX) / Math.abs(sx)) * 100 : null;
 
+  // Reference (standard) value for each point index: the matching per-point
+  // standard when a standard curve exists, otherwise the standard's average.
+  const refYAt = (idx) => {
+    if (hasStandardCurve) {
+      const m = validStdSeries.find(sp => sp.idx === idx);
+      if (m) return m.yVal;
+    }
+    return hasStandardY ? sy : null;
+  };
+  const pointDev = (p) => {
+    const ref = refYAt(p.idx);
+    if (ref === null || ref === 0) return { ref, pct: null, status: "ok" };
+    const pct = (Math.abs(p.yVal - ref) / Math.abs(ref)) * 100;
+    const status = pct > critPct ? "critical" : pct >= warnPct ? "warning" : "ok";
+    return { ref, pct, status };
+  };
+  const devs = validSeries.map(pointDev);
+  const warnCount = devs.filter(d => d.status === "warning").length;
+  const critCount = devs.filter(d => d.status === "critical").length;
+
+  // Tolerance band around the standard (per point index across the whole axis)
+  const bandIdxs = Array.from({ length: Math.max(totalPoints, hasStandardCurve ? stdSeries.length : 0, 2) }, (_, i) => i + 1);
+  const bandRefs = bandIdxs.map(i => ({ idx: i, ref: refYAt(i) })).filter(b => b.ref !== null && b.ref !== 0);
+  const bandAt = (pct, sign) => bandRefs.map(b => ({ idx: b.idx, y: b.ref + sign * Math.abs(b.ref) * pct / 100 }));
+
   // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
   const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
   const allY = [
@@ -174,12 +208,19 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     ...(hasAvgY ? [avgY] : []),
     ...validSeries.map(p => p.yVal),
     ...validStdSeries.map(p => p.yVal),
+    ...bandAt(critPct, 1).map(b => b.y),
+    ...bandAt(critPct, -1).map(b => b.y),
   ];
+  // Keep the Y axis at least ±20% around the standard, so a 1–2% difference
+  // looks small instead of being blown up to fill the whole chart.
+  if (hasStandardY && sy !== 0) {
+    allY.push(sy - Math.abs(sy) * 0.2, sy + Math.abs(sy) * 0.2);
+  }
   const rawMinY = allY.length ? Math.min(...allY) : -1;
   const rawMaxY = allY.length ? Math.max(...allY) : 1;
   const rangeY = (rawMaxY - rawMinY) || 1;
   const baseMinX = rawMinXIdx - 0.6, baseMaxX = rawMaxXIdx + 0.6;
-  const baseMinY = rawMinY - rangeY * 0.25, baseMaxY = rawMaxY + rangeY * 0.25;
+  const baseMinY = rawMinY - rangeY * 0.12, baseMaxY = rawMaxY + rangeY * 0.12;
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
 
@@ -230,6 +271,9 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const pxPerUnitY = plotH / (maxY - minY);
 
   const handlePointerDown = (e) => {
+    // Tapping a point shows its value — don't turn that into a drag.
+    // At zoom 1 there's nothing to pan, so leave touches alone (lets the page scroll on phones).
+    if (e.target.closest?.("[data-pt]") || zoom <= 1) return;
     svgRef.current?.setPointerCapture?.(e.pointerId);
     dragRef.current = { startClientX: e.clientX, startClientY: e.clientY, startPan: pan, pxPerUnitX, pxPerUnitY };
   };
@@ -254,6 +298,26 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const stdLinePoints = validStdSeries.map(p => toPx(p.idx, p.yVal));
   const stdSmoothPathStr = smoothPathFromPoints(stdLinePoints);
 
+  // Closed band shape: upper edge left→right, then lower edge right→left
+  const bandPath = (pct) => {
+    const up = bandAt(pct, 1).map(b => toPx(b.idx, b.y));
+    const lo = bandAt(pct, -1).map(b => toPx(b.idx, b.y)).reverse();
+    if (up.length < 2) return "";
+    // extend flat to the plot edges so the band covers the whole width
+    const ext = (pts, leftFirst) => {
+      const first = pts[0], last = pts[pts.length - 1];
+      const L = margin - 10, Rr = size - margin + 10;
+      return leftFirst
+        ? [{ px: L, py: first.py }, ...pts, { px: Rr, py: last.py }]
+        : [{ px: Rr, py: first.py }, ...pts, { px: L, py: last.py }];
+    };
+    const upP = smoothPathFromPoints(ext(up, true));
+    const loP = smoothPathFromPoints(ext(lo, false)).replace(/^M/, "L");
+    return `${upP} ${loP} Z`;
+  };
+  const critBand = bandPath(critPct);
+  const warnBand = bandPath(warnPct);
+
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
@@ -277,6 +341,26 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           are or how the chart is zoomed. */}
       {(hasStandardY || hasAvgY) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {validSeries.length > 0 && bandRefs.length > 0 && (
+            critCount + warnCount === 0 ? (
+              <span style={{ ...badgeStyle, color: "#166534", background: "#DCFCE7", borderColor: "#BBF7D0" }}>
+                ✅ ทุกจุดอยู่ในเกณฑ์ (±{warnPct}%)
+              </span>
+            ) : (
+              <>
+                {critCount > 0 && (
+                  <span style={{ ...badgeStyle, color: "#991B1B", background: "#FEE2E2", borderColor: "#FECACA" }}>
+                    🔴 เกิน {critPct}% · {critCount} จุด
+                  </span>
+                )}
+                {warnCount > 0 && (
+                  <span style={{ ...badgeStyle, color: "#92400E", background: "#FEF3C7", borderColor: "#FDE68A" }}>
+                    ⚠️ {warnPct}–{critPct}% · {warnCount} จุด
+                  </span>
+                )}
+              </>
+            )
+          )}
           {hasStandardY && (
             <span style={{
               fontSize: 10.5, fontWeight: 700, color: "#475569", background: "#F1F5F9",
@@ -300,7 +384,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         ref={svgRef}
         width="100%" viewBox={`0 0 ${size} ${height}`}
         style={{
-          touchAction: "none", cursor: "grab", background: "#fcfdff", borderRadius: 8, display: "block",
+          touchAction: zoom > 1 ? "none" : "pan-y", cursor: zoom > 1 ? "grab" : "default", background: "#fcfdff", borderRadius: 8, display: "block",
           height: "auto", aspectRatio: `${size} / ${height}`, maxHeight: height,
         }}
         onPointerDown={handlePointerDown}
@@ -366,6 +450,9 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         })}
 
         <g clipPath="url(#gac-clip)">
+          {/* tolerance bands around the standard: amber = watch zone, green = normal */}
+          {critBand && <path d={critBand} fill="#FEF3C7" opacity="0.75" />}
+          {warnBand && <path d={warnBand} fill="#DCFCE7" opacity="0.9" />}
           {/* standard reference line — a curve through the standard's own
               per-point values when available (its value is shown as a badge
               above the chart, not drawn as on-line text). Falls back to a
@@ -409,26 +496,62 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
-          {/* each measured point, with Gain Y + Gain X + deviation-from-standard, and tooltip */}
-          {validSeries.map((p) => {
+          {/* each measured point — colored by how far it is from the standard */}
+          {validSeries.map((p, i) => {
             const { px, py } = toPx(p.idx, p.yVal);
-            const devVal = hasStandardY ? p.yVal - sy : null;
-            const devPct = (devVal !== null && sy !== 0) ? (Math.abs(devVal) / Math.abs(sy)) * 100 : null;
+            const st = POINT_STATUS[devs[i].status];
             return (
-              <g key={p.idx}>
-                <circle cx={px} cy={py} r="5.5" fill="#93C5FD" stroke="#2563EB" strokeWidth="1.2">
-                  <title>{`จุดที่ ${p.idx}: X=${p.x}, Y=${p.y}`}</title>
-                </circle>
-                <text x={px} y={py - 18} fontSize="10" fill="#1E3A8A" textAnchor="middle" fontWeight="700">
-                  Y={p.yVal}{devPct !== null ? ` (Δ${devPct.toFixed(0)}%)` : ""}
-                </text>
-                <text x={px} y={py - 8} fontSize="8.5" fill="#2563EB" textAnchor="middle">
-                  X={p.x}
-                </text>
+              <g key={p.idx} data-pt="1"
+                onPointerEnter={() => setActiveIdx(p.idx)}
+                onPointerLeave={() => setActiveIdx(cur => (cur === p.idx ? null : cur))}
+                onClick={() => setActiveIdx(cur => (cur === p.idx ? null : p.idx))}
+                style={{ cursor: "pointer" }}
+              >
+                <circle cx={px} cy={py} r="13" fill="transparent" />
+                <circle cx={px} cy={py} r={activeIdx === p.idx ? 7 : 5.5}
+                  fill={st.fill} stroke={st.stroke} strokeWidth="1.4" />
               </g>
             );
           })}
         </g>
+
+        {/* Labels drawn outside the clip so they're never cut at the edges.
+            Only out-of-tolerance points (and the hovered/tapped one) get a label,
+            so labels don't pile on top of each other. */}
+        {(() => {
+          // decide label placement once: consecutive labeled points alternate above/below
+          let prevShown = false, prevBelow = false;
+          return validSeries.map((p, i) => {
+            const shown = devs[i].status !== "ok" || activeIdx === p.idx;
+            const { py } = toPx(p.idx, p.yVal);
+            const below = shown ? (prevShown ? !prevBelow : py - 30 < margin) : false;
+            prevShown = shown; prevBelow = below;
+            return below;
+          });
+        })().map((belowFlag, i, flags) => {
+          const p = validSeries[i];
+          const d = devs[i];
+          const show = d.status !== "ok" || activeIdx === p.idx;
+          if (!show) return null;
+          const { px, py } = toPx(p.idx, p.yVal);
+          if (px < margin - 1 || px > size - margin + 1 || py < margin - 1 || py > height - margin + 1) return null;
+          const below = belowFlag || py + 30 > height - margin ? belowFlag && py + 30 <= height - margin : false;
+          const anchor = px < margin + 45 ? "start" : px > size - margin - 45 ? "end" : "middle";
+          const st = POINT_STATUS[d.status];
+          const ty = below ? py + 20 : py - 20;
+          return (
+            <g key={`lbl-${p.idx}`} pointerEvents="none">
+              <text x={px} y={ty} fontSize="11" fill={st.text} textAnchor={anchor} fontWeight="700"
+                stroke="#fff" strokeWidth="3" paintOrder="stroke">
+                #{p.idx} Y={p.yVal}{d.pct !== null ? ` (${d.pct.toFixed(1)}%)` : ""}
+              </text>
+              <text x={px} y={ty + 11} fontSize="9" fill={st.stroke} textAnchor={anchor}
+                stroke="#fff" strokeWidth="3" paintOrder="stroke">
+                X={p.x}{d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : ""}
+              </text>
+            </g>
+          );
+        })}
       </svg>
 
       <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
@@ -442,6 +565,18 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               Gain X: {hasStandardX ? sx : "—"} &nbsp; Gain Y: {hasStandardY ? sy : "—"}
             </div>
           </div>
+          {bandRefs.length > 0 && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#BBF7D0", flexShrink: 0 }} />
+                ช่วงปกติ ±{warnPct}%
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155", marginTop: 2 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#FDE68A", flexShrink: 0 }} />
+                ช่วงติดตาม ±{critPct}%
+              </div>
+            </div>
+          )}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#92400E" }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: "#D97706", flexShrink: 0 }} />
@@ -480,12 +615,17 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           </div>
         )}
         <div style={{ fontSize: 9.5, color: "#cbd5e1", marginTop: 8 }}>
-          ลากเพื่อเลื่อนมุมมอง (ไม่หลุดขอบข้อมูล) · scroll/ปุ่ม +− เพื่อซูม · เส้นประบางๆ ที่จุด = ระยะห่างจากค่ามาตรฐาน
+          ชี้/แตะที่จุดเพื่อดูค่า · จุดเหลือง/แดง = หลุดเกณฑ์ (แสดงตัวเลขให้อัตโนมัติ) · ลากเพื่อเลื่อน · scroll/ปุ่ม +− เพื่อซูม
         </div>
       </div>
     </div>
   );
 }
+
+const badgeStyle = {
+  fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: "3px 10px",
+  border: "1px solid transparent",
+};
 
 const zoomBtnStyle = {
   width: 22, height: 22, border: "1px solid #e2e8f0", borderRadius: 6,
