@@ -254,6 +254,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
   const zoomOut = () => setZoom(z => clampZoom(z / 1.5));
   const resetView = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
+  const isDefaultView = zoom === 1 && clampedPanX === 0 && clampedPanY === 0;
 
   useEffect(() => {
     const el = svgRef.current;
@@ -327,10 +328,21 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           </div>
           <div style={{ fontSize: 11, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={zoomOut} title="ซูมออก" style={zoomBtnStyle}>−</button>
-          <button onClick={zoomIn} title="ซูมเข้า" style={zoomBtnStyle}>+</button>
-          <button onClick={resetView} title="รีเซ็ตมุมมอง" style={{ ...zoomBtnStyle, width: "auto", padding: "0 8px", fontSize: 10 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <span style={{ fontSize: 10, color: isDefaultView ? "#cbd5e1" : "#2563EB", fontWeight: 700, minWidth: 34, textAlign: "right" }}>
+            {Math.round(zoom * 100)}%
+          </span>
+          <button onClick={zoomOut} title="ซูมออก" disabled={zoom <= ZOOM_MIN}
+            style={{ ...zoomBtnStyle, opacity: zoom <= ZOOM_MIN ? 0.4 : 1 }}>−</button>
+          <button onClick={zoomIn} title="ซูมเข้า" disabled={zoom >= ZOOM_MAX}
+            style={{ ...zoomBtnStyle, opacity: zoom >= ZOOM_MAX ? 0.4 : 1 }}>+</button>
+          <button onClick={resetView} title={isDefaultView ? "อยู่ที่มุมมองปกติแล้ว" : "กลับสู่มุมมองปกติ"} disabled={isDefaultView}
+            style={{
+              ...zoomBtnStyle, width: "auto", padding: "0 8px", fontSize: 10,
+              ...(isDefaultView
+                ? { opacity: 0.4, cursor: "default" }
+                : { background: "#2563EB", color: "#fff", borderColor: "#2563EB" }),
+            }}>
             รีเซ็ต
           </button>
         </div>
