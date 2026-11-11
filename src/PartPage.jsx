@@ -607,6 +607,15 @@ function InspectTab({ standards, inspections, currentUser }) {
     setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
   };
 
+  const anyGainEntered = gainPoints.some(p => p.x !== "" || p.y !== "");
+  const clearGain = () => {
+    if (!anyGainEntered) return;
+    if (!confirm("ล้างค่า Gain X / Y ที่กรอกไว้ทั้งหมด?")) return;
+    setGainPoints(emptyGainPoints(gainPoints.length));
+    setActiveTargetKey(`gain:0:x`);
+    requestAnimationFrame(() => gainRefs.current["0-x"]?.focus());
+  };
+
   const resetForm = () => {
     setSerialNo("");
     setValues({ diameter: "", thickness: "" });
@@ -755,7 +764,15 @@ function InspectTab({ standards, inspections, currentUser }) {
       </Card>
 
       <Card dim={!selected}>
-        <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด`} />
+        <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด`} right={
+          <button type="button" onClick={clearGain} disabled={!anyGainEntered} style={{
+            background: anyGainEntered ? "#fef2f2" : "#f8fafc",
+            color: anyGainEntered ? "#dc2626" : "#cbd5e1",
+            border: `1px solid ${anyGainEntered ? "#fecaca" : LINE}`, borderRadius: 7,
+            padding: "5px 10px", fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+            cursor: anyGainEntered ? "pointer" : "default",
+          }}>🗑 ล้างค่า Gain</button>
+        } />
         <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
           กรอกเท่าที่วัดได้ ไม่ต้องครบทุกจุดก็คำนวณได้ (เฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y)
           {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
@@ -970,7 +987,7 @@ function Card({ children, dim }) {
   );
 }
 
-function SectionTitle({ step, title, hint }) {
+function SectionTitle({ step, title, hint, right }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
       <span style={{
@@ -980,6 +997,7 @@ function SectionTitle({ step, title, hint }) {
       }}>{step}</span>
       <span style={{ fontSize: 14, fontWeight: 800, color: INK }}>{title}</span>
       {hint && <span style={{ fontSize: 11, color: "#94a3b8" }}>· {hint}</span>}
+      {right && <div style={{ marginLeft: "auto" }}>{right}</div>}
     </div>
   );
 }
