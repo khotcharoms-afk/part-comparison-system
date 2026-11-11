@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useId } from "react";
 
 /**
  * Shared calculations (also used from PartPage.jsx when saving to Firestore).
@@ -152,6 +152,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const warnPct = Number(thresholds?.warning) || 5;
   const critPct = Number(thresholds?.critical) || 10;
   const [activeIdx, setActiveIdx] = useState(null); // point whose label is shown on hover/tap
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
@@ -323,17 +324,42 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     const loP = smoothPathFromPoints(lo).replace(/^M/, "L");
     return `${upP} ${loP} Z`;
   };
-  const critBand = bandPath(critPct);
-  const warnBand = bandPath(warnPct);
+  // Limit lines (dashed) at ±warning / ±critical around the standard profile
+  const limitPath = (pct, sign) => smoothPathFromPoints(bandAt(pct, sign).map(b => toPx(b.idx, b.y)));
+
+  // ---- Cross-section view geometry ----
+  // Standard profile = the "new tyre" outline; filled down to the bottom of the plot
+  const plotTop = margin, plotBottom = height - margin;
+  const stdOutlinePts = hasStandardCurve
+    ? stdLinePoints
+    : (stdPy !== null && totalPoints >= 1
+        ? [toPx(1, sy), toPx(Math.max(totalPoints, 2), sy)]
+        : []);
+  const stdOutline = hasStandardCurve ? stdSmoothPathStr
+    : stdOutlinePts.length === 2 ? `M${stdOutlinePts[0].px},${stdOutlinePts[0].py} L${stdOutlinePts[1].px},${stdOutlinePts[1].py}` : "";
+  const closeTo = (path, pts, yEdge) => (path && pts.length >= 2)
+    ? `${path} L${pts[pts.length - 1].px},${yEdge} L${pts[0].px},${yEdge} Z` : "";
+  const stdBodyPath = closeTo(stdOutline, stdOutlinePts, plotBottom + 40);
+  const stdAbovePath = closeTo(stdOutline, stdOutlinePts, plotTop - 40);
+  const measUnderPath = closeTo(measuredPathStr, linePoints, plotBottom + 40);
+  const measAbovePath = closeTo(measuredPathStr, linePoints, plotTop - 40);
+
+  // Biggest wear (most negative deviation) for the summary badge
+  const worst = validSeries.reduce((acc, p, i) => {
+    const ref = devs[i].ref;
+    if (!ref) return acc;
+    const v = ((p.yVal - ref) / Math.abs(ref)) * 100;
+    return !acc || v < acc.v ? { idx: p.idx, v } : acc;
+  }, null);
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
-            Gain Y แต่ละจุดวัด เทียบกับค่ามาตรฐาน
+            โปรไฟล์หน้ายาง (ภาพตัดขวาง) เทียบกับมาตรฐาน
           </div>
-          <div style={{ fontSize: 11, color: "#94a3b8" }}>เฉลี่ยจากข้อมูล {count || 0}/{totalPoints} จุดที่กรอก</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>วัดจากขอบซ้าย → ขอบขวา · กรอกแล้ว {count || 0}/{totalPoints} จุด</div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <span style={{ fontSize: 10, color: isDefaultView ? "#cbd5e1" : "#2563EB", fontWeight: 700, minWidth: 34, textAlign: "right" }}>
@@ -380,6 +406,11 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               </>
             )
           )}
+          {worst && worst.v < -warnPct && (
+            <span style={{ ...badgeStyle, color: "#991B1B", background: "#FFF1F2", borderColor: "#FECDD3" }}>
+              สึกมากสุดที่ #{worst.idx} ({worst.v.toFixed(1)}%)
+            </span>
+          )}
           {hasStandardY && (
             <span style={{
               fontSize: 10.5, fontWeight: 700, color: "#475569", background: "#F1F5F9",
@@ -415,6 +446,12 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           <clipPath id="gac-clip">
             <rect x={margin} y={margin} width={plotW} height={plotH} />
           </clipPath>
+          {measAbovePath && <clipPath id={`${uid}-measAbove`}><path d={measAbovePath} /></clipPath>}
+          {stdAbovePath && <clipPath id={`${uid}-stdAbove`}><path d={stdAbovePath} /></clipPath>}
+          <pattern id={`${uid}-rubber`} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="8" height="8" fill="#E2E8F0" />
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#CBD5E1" strokeWidth="1.2" />
+          </pattern>
         </defs>
 
         {/* Y grid lines with round-number labels */}
@@ -453,6 +490,17 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           );
         })()}
 
+        {/* edge markers: which side is which */}
+        {totalPoints >= 2 && (() => {
+          const l = toPx(1, 0).px, r = toPx(totalPoints, 0).px;
+          return (
+            <g fontSize="10" fill="#64748B" fontWeight="700">
+              {l >= margin - 1 && <text x={l} y={height - margin + 34} textAnchor="middle">◀ ขอบซ้าย</text>}
+              {r <= size - margin + 1 && <text x={r} y={height - margin + 34} textAnchor="middle">ขอบขวา ▶</text>}
+            </g>
+          );
+        })()}
+
         {/* X axis labels — point index */}
         {series.map((p) => {
           const { px } = toPx(p.idx, minY);
@@ -465,22 +513,31 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         })}
 
         <g clipPath="url(#gac-clip)">
-          {/* tolerance bands around the standard: amber = watch zone, green = normal */}
-          {critBand && <path d={critBand} fill="#FEF3C7" opacity="0.75" />}
-          {warnBand && <path d={warnBand} fill="#DCFCE7" opacity="0.9" />}
-          {/* standard reference line — a curve through the standard's own
-              per-point values when available (its value is shown as a badge
-              above the chart, not drawn as on-line text). Falls back to a
-              flat line at the average when no per-point standard data exists,
-              so older standards (average-only) still render correctly. */}
-          {hasStandardCurve ? (
-            <path d={stdSmoothPathStr} fill="none" stroke="#64748B" strokeWidth="2.4"
+          {/* 1) the standard ("new tyre") cross-section — hatched rubber body */}
+          {stdBodyPath && <path d={stdBodyPath} fill={`url(#${uid}-rubber)`} />}
+
+          {/* 2) WORN area: inside the standard body but above the measured line → red */}
+          {stdBodyPath && measAbovePath && (
+            <path d={stdBodyPath} fill="#F87171" opacity="0.55" clipPath={`url(#${uid}-measAbove)`} />
+          )}
+          {/* 3) BULGE area: under the measured line but above the standard → amber */}
+          {measUnderPath && stdAbovePath && (
+            <path d={measUnderPath} fill="#FBBF24" opacity="0.5" clipPath={`url(#${uid}-stdAbove)`} />
+          )}
+
+          {/* limit lines: ±warning (green) and ±critical (amber), dashed */}
+          {bandRefs.length >= 2 && [
+            [warnPct, 1, "#22C55E"], [warnPct, -1, "#22C55E"],
+            [critPct, 1, "#F59E0B"], [critPct, -1, "#F59E0B"],
+          ].map(([pct, sign, color]) => (
+            <path key={`lim-${pct}-${sign}`} d={limitPath(pct, sign)} fill="none"
+              stroke={color} strokeWidth="1.2" strokeDasharray="5 4" opacity="0.9" />
+          ))}
+
+          {/* standard outline */}
+          {stdOutline && (
+            <path d={stdOutline} fill="none" stroke="#475569" strokeWidth="2.4"
               strokeLinejoin="round" strokeLinecap="round" />
-          ) : (
-            stdPy !== null && (
-              <line x1={margin} y1={stdPy} x2={size - margin} y2={stdPy}
-                stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
-            )
           )}
           {linePoints.length > 1 && (
             <path d={measuredPathStr} fill="none" stroke="#2563EB" strokeWidth="2.2"
@@ -683,22 +740,32 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 8 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#64748B", flexShrink: 0 }} />
-              มาตรฐาน
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#E2E8F0", border: "2px solid #475569", boxSizing: "border-box", flexShrink: 0 }} />
+              มาตรฐาน (ยางใหม่)
             </div>
             <div style={{ marginLeft: 16 }}>
               Gain X: {hasStandardX ? sx : "—"} &nbsp; Gain Y: {hasStandardY ? sy : "—"}
             </div>
           </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#F87171", opacity: 0.7, flexShrink: 0 }} />
+              ส่วนที่สึก (ต่ำกว่ามาตรฐาน)
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155", marginTop: 2 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#FBBF24", opacity: 0.7, flexShrink: 0 }} />
+              ส่วนที่นูน (สูงกว่ามาตรฐาน)
+            </div>
+          </div>
           {bandRefs.length > 0 && (
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#BBF7D0", flexShrink: 0 }} />
-                ช่วงปกติ ±{warnPct}%
+                <span style={{ width: 14, height: 0, borderTop: "2px dashed #22C55E", flexShrink: 0 }} />
+                เกณฑ์ปกติ ±{warnPct}%
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155", marginTop: 2 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#FDE68A", flexShrink: 0 }} />
-                ช่วงติดตาม ±{critPct}%
+                <span style={{ width: 14, height: 0, borderTop: "2px dashed #F59E0B", flexShrink: 0 }} />
+                เกณฑ์ติดตาม ±{critPct}%
               </div>
             </div>
           )}
