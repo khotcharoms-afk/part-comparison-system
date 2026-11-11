@@ -516,42 +516,55 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         </g>
 
         {/* Labels drawn outside the clip so they're never cut at the edges.
-            Only out-of-tolerance points (and the hovered/tapped one) get a label,
-            so labels don't pile on top of each other. */}
+            Only out-of-tolerance points (and the hovered/tapped one) get a label.
+            Placement is greedy: the hovered point first, then the biggest deviation;
+            each label tries above, then below its point, and is skipped if it would
+            overlap a label already placed (the point stays colored — hover/tap shows it). */}
         {(() => {
-          // decide label placement once: consecutive labeled points alternate above/below
-          let prevShown = false, prevBelow = false;
-          return validSeries.map((p, i) => {
-            const shown = devs[i].status !== "ok" || activeIdx === p.idx;
-            const { py } = toPx(p.idx, p.yVal);
-            const below = shown ? (prevShown ? !prevBelow : py - 30 < margin) : false;
-            prevShown = shown; prevBelow = below;
-            return below;
-          });
-        })().map((belowFlag, i, flags) => {
-          const p = validSeries[i];
-          const d = devs[i];
-          const show = d.status !== "ok" || activeIdx === p.idx;
-          if (!show) return null;
-          const { px, py } = toPx(p.idx, p.yVal);
-          if (px < margin - 1 || px > size - margin + 1 || py < margin - 1 || py > height - margin + 1) return null;
-          const below = belowFlag || py + 30 > height - margin ? belowFlag && py + 30 <= height - margin : false;
-          const anchor = px < margin + 45 ? "start" : px > size - margin - 45 ? "end" : "middle";
-          const st = POINT_STATUS[d.status];
-          const ty = below ? py + 20 : py - 20;
-          return (
-            <g key={`lbl-${p.idx}`} pointerEvents="none">
-              <text x={px} y={ty} fontSize="11" fill={st.text} textAnchor={anchor} fontWeight="700"
-                stroke="#fff" strokeWidth="3" paintOrder="stroke">
-                #{p.idx} Y={p.yVal}{d.pct !== null ? ` (${d.pct.toFixed(1)}%)` : ""}
-              </text>
-              <text x={px} y={ty + 11} fontSize="9" fill={st.stroke} textAnchor={anchor}
-                stroke="#fff" strokeWidth="3" paintOrder="stroke">
-                X={p.x}{d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : ""}
-              </text>
-            </g>
-          );
-        })}
+          const candidates = validSeries
+            .map((p, i) => ({ p, d: devs[i] }))
+            .filter(({ p, d }) => d.status !== "ok" || activeIdx === p.idx)
+            .sort((a, b) => {
+              if (a.p.idx === activeIdx) return -1;
+              if (b.p.idx === activeIdx) return 1;
+              return (b.d.pct ?? 0) - (a.d.pct ?? 0);
+            });
+          const placed = [];
+          const pointBoxes = linePoints.map(pt => ({ x1: pt.px - 6, x2: pt.px + 6, y1: pt.py - 6, y2: pt.py + 6 }));
+          const hit = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+          const out = [];
+          for (const { p, d } of candidates) {
+            const { px, py } = toPx(p.idx, p.yVal);
+            if (px < margin - 1 || px > size - margin + 1 || py < margin - 1 || py > height - margin + 1) continue;
+            const line1 = `#${p.idx} Y=${p.yVal}${d.pct !== null ? ` (${d.pct.toFixed(1)}%)` : ""}`;
+            const line2 = `X=${p.x}${d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : ""}`;
+            const w = Math.max(line1.length * 6.4, line2.length * 5.2) + 6;
+            const anchor = px < margin + w / 2 ? "start" : px > size - margin - w / 2 ? "end" : "middle";
+            const x1 = anchor === "start" ? px - 3 : anchor === "end" ? px - w + 3 : px - w / 2;
+            const isActive = p.idx === activeIdx;
+            let spot = null;
+            for (const below of [false, true]) {
+              const ty = below ? py + 20 : py - 20;
+              const box = { x1, x2: x1 + w, y1: ty - 11, y2: ty + 14 };
+              if (box.y1 < 4 || box.y2 > height - 4) continue;
+              const blocked = placed.some(b => hit(b, box))
+                || (!isActive && pointBoxes.some(b => hit(b, box)));
+              if (!blocked || isActive) { spot = { ty, box }; break; }
+            }
+            if (!spot) continue;
+            placed.push(spot.box);
+            const st = POINT_STATUS[d.status];
+            out.push(
+              <g key={`lbl-${p.idx}`} pointerEvents="none">
+                <text x={px} y={spot.ty} fontSize="11" fill={st.text} textAnchor={anchor} fontWeight="700"
+                  stroke="#fff" strokeWidth="3" paintOrder="stroke">{line1}</text>
+                <text x={px} y={spot.ty + 11} fontSize="9" fill={st.stroke} textAnchor={anchor}
+                  stroke="#fff" strokeWidth="3" paintOrder="stroke">{line2}</text>
+              </g>
+            );
+          }
+          return out;
+        })()}
       </svg>
 
       <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
