@@ -142,6 +142,110 @@ const ZOOM_MIN = 1, ZOOM_MAX = 20;
  * badges above the chart (not drawn on the line itself), so they never collide
  * with a data point's label.
  */
+/**
+ * Reads the measured profile against the standard and describes it in plain Thai:
+ * where it's worn (left edge / centre / right edge), any bulges, left-vs-right
+ * imbalance, overall wear, and a verdict. Points run left edge (#1) → right edge (#N).
+ * Returns { level: "ok"|"warning"|"critical"|null, verdict, findings: [{tone, text}] }.
+ */
+export function diagnoseProfile({ points, standardPoints, standardY, thresholds }) {
+  const warn = Number(thresholds?.warning) || 5;
+  const crit = Number(thresholds?.critical) || 10;
+  const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const n = (points || []).length;
+  const stdAt = i => {
+    const v = num(standardPoints?.[i]?.y);
+    return v !== null ? v : num(standardY);
+  };
+  const rows = [];
+  (points || []).forEach((p, i) => {
+    const y = num(p?.y), ref = stdAt(i);
+    if (y === null || ref === null || ref === 0) return;
+    rows.push({ idx: i + 1, pct: ((y - ref) / Math.abs(ref)) * 100 });
+  });
+  if (rows.length === 0) return { level: null, verdict: "", findings: [] };
+
+  const zoneOf = idx => {
+    const t = (idx - 0.5) / n;
+    return t < 1 / 3 ? "left" : t > 2 / 3 ? "right" : "center";
+  };
+  const ZONE = { left: "ขอบซ้าย", center: "กลางหน้ายาง", right: "ขอบขวา" };
+  const ranges = idxs => {
+    const out = [];
+    idxs.forEach(i => {
+      const last = out[out.length - 1];
+      if (last && i === last[1] + 1) last[1] = i; else out.push([i, i]);
+    });
+    return out.map(([a, b]) => (a === b ? `#${a}` : `#${a}–#${b}`)).join(", ");
+  };
+  const findings = [];
+  const worn = rows.filter(r => r.pct < -warn);
+  const bulge = rows.filter(r => r.pct > warn);
+  const mean = rows.reduce((s, r) => s + r.pct, 0) / rows.length;
+  const spread = Math.max(...rows.map(r => r.pct)) - Math.min(...rows.map(r => r.pct));
+
+  // --- wear ---
+  if (worn.length === 0) {
+    findings.push({ tone: "ok", text: `ไม่พบจุดสึกเกินเกณฑ์ (ทุกจุดต่ำกว่ามาตรฐานไม่เกิน ${warn}%)` });
+  } else if (worn.length === rows.length && spread < warn) {
+    findings.push({ tone: "warn", text: `สึกเท่าๆ กันทั้งหน้ายาง ประมาณ ${Math.abs(mean).toFixed(1)}% — ลักษณะสึกตามอายุการใช้งาน` });
+  } else {
+    const zones = [...new Set(worn.map(r => zoneOf(r.idx)))];
+    const has = z => zones.includes(z);
+    let where;
+    if (zones.length === 1) where = `สึกที่${ZONE[zones[0]]}`;
+    else if (has("left") && has("right") && !has("center")) where = "สึกที่ขอบทั้งสองข้าง (กลางหน้ายางยังปกติ)";
+    else if (zones.length === 3) where = "สึกหลายช่วงทั่วหน้ายาง";
+    else if (has("left")) where = "สึกจากขอบซ้ายเข้ามาถึงกลางหน้ายาง";
+    else where = "สึกจากกลางหน้ายางไปทางขอบขวา";
+    const worst = worn.reduce((a, b) => (b.pct < a.pct ? b : a));
+    findings.push({
+      tone: worn.some(r => r.pct < -crit) ? "bad" : "warn",
+      text: `${where} — จุด ${ranges(worn.map(r => r.idx))} · ลึกสุดที่ #${worst.idx} (${worst.pct.toFixed(1)}%)`,
+    });
+  }
+
+  // --- bulge ---
+  if (bulge.length === 0) {
+    findings.push({ tone: "ok", text: "ไม่พบยางบวมหรือนูนเกินเกณฑ์" });
+  } else {
+    const zones = [...new Set(bulge.map(r => zoneOf(r.idx)))].map(z => ZONE[z]).join(" / ");
+    const top = bulge.reduce((a, b) => (b.pct > a.pct ? b : a));
+    findings.push({
+      tone: bulge.some(r => r.pct > crit) ? "bad" : "warn",
+      text: `พบยางนูน/บวมที่${zones} — จุด ${ranges(bulge.map(r => r.idx))} · มากสุดที่ #${top.idx} (+${top.pct.toFixed(1)}%) ควรตรวจด้วยตาว่ามีรอยบวมหรือผิวแยกชั้นหรือไม่`,
+    });
+  }
+
+  // --- left vs right balance ---
+  const side = z => rows.filter(r => zoneOf(r.idx) === z);
+  const L = side("left"), Rr = side("right");
+  if (L.length && Rr.length) {
+    const avg = a => a.reduce((s, r) => s + r.pct, 0) / a.length;
+    const d = avg(L) - avg(Rr);
+    if (Math.abs(d) >= warn) {
+      findings.push({
+        tone: "warn",
+        text: `สองฝั่งสึกไม่เท่ากัน — ฝั่ง${d < 0 ? "ซ้าย" : "ขวา"}ต่ำกว่าอีกฝั่งประมาณ ${Math.abs(d).toFixed(1)}% อาจเกิดจากล้อเอียงหรือรับน้ำหนักไม่เท่ากัน ควรตรวจการติดตั้งล้อ`,
+      });
+    }
+  }
+
+  // --- overall ---
+  findings.push({
+    tone: "info",
+    text: `โดยรวมหน้ายาง${mean < 0 ? "ต่ำกว่า" : "สูงกว่า"}มาตรฐานเฉลี่ย ${Math.abs(mean).toFixed(1)}% (วัดได้ ${rows.length}/${n} จุด)`,
+  });
+
+  const anyCrit = rows.some(r => Math.abs(r.pct) > crit);
+  const anyWarn = rows.some(r => Math.abs(r.pct) >= warn);
+  const level = anyCrit ? "critical" : anyWarn ? "warning" : "ok";
+  const verdict = level === "critical" ? "🔴 มีจุดเกินเกณฑ์วิกฤต — ควรเปลี่ยนล้อหรือตรวจสอบละเอียด"
+    : level === "warning" ? "⚠️ เริ่มมีอาการ — ติดตามในรอบตรวจถัดไป"
+    : "✅ หน้ายางอยู่ในเกณฑ์ — ใช้งานต่อได้";
+  return { level, verdict, findings };
+}
+
 const POINT_STATUS = {
   ok: { fill: "#93C5FD", stroke: "#2563EB", text: "#1E3A8A" },
   warning: { fill: "#FCD34D", stroke: "#D97706", text: "#92400E" },
@@ -205,6 +309,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   };
   const devs = validSeries.map(pointDev);
   const warnCount = devs.filter(d => d.status === "warning").length;
+  const diagnosis = diagnoseProfile({ points, standardPoints: hasStandardCurve ? standardPoints : null, standardY, thresholds });
   const critCount = devs.filter(d => d.status === "critical").length;
 
   // Tolerance band around the standard (per point index across the whole axis)
@@ -325,8 +430,6 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     const loP = smoothPathFromPoints(lo).replace(/^M/, "L");
     return `${upP} ${loP} Z`;
   };
-  // Limit lines (dashed) at ±warning / ±critical around the standard profile
-  const limitPath = (pct, sign) => smoothPathFromPoints(bandAt(pct, sign).map(b => toPx(b.idx, b.y)));
 
   // ---- Cross-section view geometry ----
   // Standard profile = the "new tyre" outline; filled down to the bottom of the plot
@@ -525,15 +628,6 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           {measUnderPath && stdAbovePath && (
             <path d={measUnderPath} fill="#FBBF24" opacity="0.5" clipPath={`url(#${uid}-stdAbove)`} />
           )}
-
-          {/* limit lines: ±warning (green) and ±critical (amber), dashed */}
-          {bandRefs.length >= 2 && [
-            [warnPct, 1, "#22C55E"], [warnPct, -1, "#22C55E"],
-            [critPct, 1, "#F59E0B"], [critPct, -1, "#F59E0B"],
-          ].map(([pct, sign, color]) => (
-            <path key={`lim-${pct}-${sign}`} d={limitPath(pct, sign)} fill="none"
-              stroke={color} strokeWidth="1.2" strokeDasharray="5 4" opacity="0.9" />
-          ))}
 
           {/* standard outline */}
           {stdOutline && (
@@ -737,6 +831,32 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         );
       })()}
 
+      {diagnosis.level && (() => {
+        const tone = {
+          critical: { bg: "#FEF2F2", border: "#FECACA", head: "#991B1B" },
+          warning: { bg: "#FFFBEB", border: "#FDE68A", head: "#92400E" },
+          ok: { bg: "#F0FDF4", border: "#BBF7D0", head: "#166534" },
+        }[diagnosis.level];
+        const dot = { ok: "#16A34A", warn: "#D97706", bad: "#DC2626", info: "#64748B" };
+        return (
+          <div style={{
+            marginTop: 12, background: tone.bg, border: `1px solid ${tone.border}`,
+            borderRadius: 10, padding: "10px 12px",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", marginBottom: 4 }}>📋 สรุปอาการจากกราฟ</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: tone.head, marginBottom: 6 }}>{diagnosis.verdict}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {diagnosis.findings.map((f, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#334155", lineHeight: 1.5 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: dot[f.tone], marginTop: 6, flexShrink: 0 }} />
+                  <span>{f.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 8 }}>
           <div>
@@ -758,18 +878,6 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               ส่วนที่นูน (สูงกว่ามาตรฐาน)
             </div>
           </div>
-          {bandRefs.length > 0 && (
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155" }}>
-                <span style={{ width: 14, height: 0, borderTop: "2px dashed #22C55E", flexShrink: 0 }} />
-                เกณฑ์ปกติ ±{warnPct}%
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#334155", marginTop: 2 }}>
-                <span style={{ width: 14, height: 0, borderTop: "2px dashed #F59E0B", flexShrink: 0 }} />
-                เกณฑ์ติดตาม ±{critPct}%
-              </div>
-            </div>
-          )}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#92400E" }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: "#D97706", flexShrink: 0 }} />

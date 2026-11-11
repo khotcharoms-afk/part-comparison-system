@@ -6,7 +6,7 @@ import {
 import { db } from "./firebase";
 import Part3DView from "./Part3DView.jsx";
 import CaliperConnector from "./CaliperConnector.jsx";
-import GainAngleChart, { computeAngleInfo, computeAveragePoint } from "./GainAngleChart.jsx";
+import GainAngleChart, { computeAngleInfo, computeAveragePoint, diagnoseProfile } from "./GainAngleChart.jsx";
 
 // Theme — blue/slate, matching the Gain chart colors
 const PRIMARY = "#2563EB";
@@ -676,6 +676,15 @@ function InspectTab({ standards, inspections, currentUser }) {
         })),
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
+        gainDiagnosis: (() => {
+          const d = diagnoseProfile({
+            points: gainPoints,
+            standardPoints: (selected.specs?.gainPoints || []).filter(p => p?.y != null).length >= 2 ? selected.specs.gainPoints : null,
+            standardY: selected.specs?.gainAverage?.y,
+            thresholds: selected.thresholds,
+          });
+          return d.level ? { level: d.level, verdict: d.verdict, findings: d.findings.map(f => f.text) } : null;
+        })(),
         condition,
         conditionNote: conditionNote.trim(),
         conditionStatus,
