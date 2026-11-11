@@ -163,7 +163,7 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
     if (y === null || ref === null || ref === 0) return;
     rows.push({ idx: i + 1, pct: ((y - ref) / Math.abs(ref)) * 100 });
   });
-  if (rows.length === 0) return { level: null, verdict: "", findings: [] };
+  if (rows.length === 0) return { level: null, verdict: "", findings: [], worn: [], bulge: [], wornRange: "", bulgeRange: "" };
 
   const zoneOf = idx => {
     const t = (idx - 0.5) / n;
@@ -243,7 +243,10 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
   const verdict = level === "critical" ? "🔴 มีจุดเกินเกณฑ์วิกฤต — ควรเปลี่ยนล้อหรือตรวจสอบละเอียด"
     : level === "warning" ? "⚠️ เริ่มมีอาการ — ติดตามในรอบตรวจถัดไป"
     : "✅ หน้ายางอยู่ในเกณฑ์ — ใช้งานต่อได้";
-  return { level, verdict, findings };
+  return {
+    level, verdict, findings, worn, bulge,
+    wornRange: ranges(worn.map(r => r.idx)), bulgeRange: ranges(bulge.map(r => r.idx)),
+  };
 }
 
 const POINT_STATUS = {

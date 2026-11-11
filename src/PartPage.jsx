@@ -589,6 +589,47 @@ function InspectTab({ standards, inspections, currentUser }) {
   }, [liveResults]);
 
   const conditionStatus = useMemo(() => conditionStatusFrom(condition), [condition]);
+  const anyConditionChecked = CONDITION_ITEMS.some(c => condition[c.key]);
+
+  // Gain profile diagnosis (same logic the chart shows) — used for the hint in the
+  // surface checklist, the combined result and the saved record.
+  const gainDiag = useMemo(() => {
+    if (!selected) return { level: null, findings: [], worn: [], bulge: [] };
+    const sp = selected.specs?.gainPoints || [];
+    return diagnoseProfile({
+      points: gainPoints,
+      standardPoints: sp.filter(p => p?.y != null).length >= 2 ? sp : null,
+      standardY: selected.specs?.gainAverage?.y,
+      thresholds: selected.thresholds,
+    });
+  }, [selected, gainPoints]);
+
+  // Final result = the worst of: size (diameter/thickness), Gain profile, surface condition
+  const RANK = { ok: 0, warning: 1, critical: 2 };
+  const resultParts = useMemo(() => {
+    const parts = [];
+    if (overallStatus) {
+      const bad = FIELDS.filter(f => liveResults[f.key]?.status && liveResults[f.key].status !== "ok")
+        .map(f => `${f.label.replace(/ \(cm\)/, "")} ${liveResults[f.key].diff.toFixed(1)}%`);
+      parts.push({ key: "size", label: "ขนาด (เส้นผ่านศูนย์กลาง/ความหนา)", status: overallStatus,
+        detail: bad.length ? `เบี่ยง: ${bad.join(", ")}` : "อยู่ในเกณฑ์" });
+    }
+    if (gainDiag.level) {
+      const bits = [];
+      if (gainDiag.worn.length) bits.push(`สึก ${gainDiag.wornRange}`);
+      if (gainDiag.bulge.length) bits.push(`นูน ${gainDiag.bulgeRange}`);
+      parts.push({ key: "gain", label: "โปรไฟล์หน้ายาง (Gain Y)", status: gainDiag.level,
+        detail: bits.length ? bits.join(" · ") : "อยู่ในเกณฑ์" });
+    }
+    if (anyConditionChecked) {
+      parts.push({ key: "surface", label: "สภาพผิว", status: conditionStatus,
+        detail: CONDITION_ITEMS.filter(c => condition[c.key]).map(c => c.label).join(", ") });
+    }
+    return parts;
+  }, [overallStatus, liveResults, gainDiag, anyConditionChecked, conditionStatus, condition]);
+  const finalStatus = resultParts.length
+    ? resultParts.reduce((w, p) => (RANK[p.status] > RANK[w] ? p.status : w), "ok")
+    : null;
 
   const gainAverage = useMemo(() => computeAveragePoint(gainPoints), [gainPoints]);
 
@@ -650,7 +691,6 @@ function InspectTab({ standards, inspections, currentUser }) {
   const handleSubmit = async () => {
     if (!selected) { alert("กรุณาเลือกรุ่น/ประเภทอะไหล่"); return; }
     const anyFilled = Object.values(values).some(v => v !== "");
-    const anyConditionChecked = CONDITION_ITEMS.some(c => condition[c.key]);
     const anyGainFilled = gainAverage.count > 0;
     if (!anyFilled && !anyConditionChecked && !anyGainFilled) {
       alert("กรุณากรอกค่าที่วัด หรือติ๊กสภาพผิวอย่างน้อย 1 อย่าง");
@@ -676,15 +716,11 @@ function InspectTab({ standards, inspections, currentUser }) {
         })),
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
-        gainDiagnosis: (() => {
-          const d = diagnoseProfile({
-            points: gainPoints,
-            standardPoints: (selected.specs?.gainPoints || []).filter(p => p?.y != null).length >= 2 ? selected.specs.gainPoints : null,
-            standardY: selected.specs?.gainAverage?.y,
-            thresholds: selected.thresholds,
-          });
-          return d.level ? { level: d.level, verdict: d.verdict, findings: d.findings.map(f => f.text) } : null;
-        })(),
+        gainDiagnosis: gainDiag.level
+          ? { level: gainDiag.level, verdict: gainDiag.verdict, findings: gainDiag.findings.map(f => f.text) }
+          : null,
+        finalStatus,
+        finalParts: resultParts.map(p => ({ part: p.key, status: p.status, detail: p.detail })),
         condition,
         conditionNote: conditionNote.trim(),
         conditionStatus,
@@ -844,11 +880,14 @@ function InspectTab({ standards, inspections, currentUser }) {
           display: "grid", gridTemplateColumns: narrow ? "1fr" : "repeat(3, 1fr)", gap: 8,
           background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12,
         }}>
-          {CONDITION_ITEMS.map(c => (
+          {CONDITION_ITEMS.map(c => {
+            const flagged = c.key === "bulging" && gainDiag.bulge.length > 0 && !condition[c.key];
+            return (
             <label key={c.key} style={{
               display: "flex", alignItems: "center", gap: 8, fontSize: 13,
               color: condition[c.key] ? "#0f172a" : "#475569", cursor: "pointer",
-              fontWeight: condition[c.key] ? 700 : 500,
+              fontWeight: condition[c.key] || flagged ? 700 : 500,
+              ...(flagged ? { background: "#FFFBEB", outline: "1px solid #FCD34D", borderRadius: 6, padding: "2px 6px", margin: "-2px -6px" } : {}),
             }}>
               <input
                 type="checkbox"
@@ -857,10 +896,28 @@ function InspectTab({ standards, inspections, currentUser }) {
                 onChange={e => setCondition({ ...condition, [c.key]: e.target.checked })}
                 style={{ width: 16, height: 16, accentColor: c.severity === "critical" ? "#dc2626" : "#d97706" }}
               />
-              {c.label}
+              {c.label}{flagged ? " ← กราฟพบ" : ""}
             </label>
-          ))}
+            );
+          })}
         </div>
+        {gainDiag.bulge.length > 0 && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", borderRadius: 8, fontSize: 12,
+            background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E",
+          }}>
+            📈 กราฟ Gain พบยางนูนที่จุด <b>{gainDiag.bulgeRange}</b> — ตรวจด้วยตาตรงตำแหน่งนั้น
+            ถ้าเห็นรอยบวมจริงให้ติ๊ก "บวม/นูน" เพื่อยืนยัน
+          </div>
+        )}
+        {gainDiag.worn.length > 0 && (
+          <div style={{
+            marginTop: 8, padding: "8px 12px", borderRadius: 8, fontSize: 12,
+            background: "#F8FAFC", border: `1px solid ${LINE}`, color: "#475569",
+          }}>
+            📈 กราฟ Gain พบจุดสึกที่ <b>{gainDiag.wornRange}</b> — ดูด้วยว่าบริเวณนั้นมีรอยแตกลายงา หรือผิวหลุดล่อนหรือไม่
+          </div>
+        )}
         <div style={{ marginTop: 8 }}>
           <FormField
             label="หมายเหตุเพิ่มเติม (ถ้ามี)" value={conditionNote}
@@ -868,7 +925,7 @@ function InspectTab({ standards, inspections, currentUser }) {
             placeholder="เช่น ตำแหน่งที่พบ, ความรุนแรง"
           />
         </div>
-        {CONDITION_ITEMS.some(c => condition[c.key]) && (
+        {anyConditionChecked && (
           <div style={{
             marginTop: 8, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
             background: STATUS_META[conditionStatus].bg,
@@ -882,14 +939,33 @@ function InspectTab({ standards, inspections, currentUser }) {
       </Card>
 
       <Card>
-        {overallStatus && (
+        {finalStatus && (
           <div style={{
-            marginBottom: 12, padding: 12, borderRadius: 10, textAlign: "center",
-            background: STATUS_META[overallStatus].bg,
-            border: `1px solid ${STATUS_META[overallStatus].border}`,
-            color: STATUS_META[overallStatus].color, fontWeight: 800, fontSize: 14,
+            marginBottom: 12, padding: 12, borderRadius: 10,
+            background: STATUS_META[finalStatus].bg,
+            border: `1px solid ${STATUS_META[finalStatus].border}`,
           }}>
-            {STATUS_META[overallStatus].icon} ผลรวม: {STATUS_META[overallStatus].label}
+            <div style={{ textAlign: "center", color: STATUS_META[finalStatus].color, fontWeight: 800, fontSize: 15, marginBottom: 8 }}>
+              {STATUS_META[finalStatus].icon} ผลรวม: {STATUS_META[finalStatus].label}
+              <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}> (ใช้ผลที่แย่ที่สุดจากทุกส่วน)</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {resultParts.map(p => {
+                const m = STATUS_META[p.status];
+                const isWorst = p.status === finalStatus && finalStatus !== "ok";
+                return (
+                  <div key={p.key} style={{
+                    display: "flex", gap: 8, alignItems: "baseline", fontSize: 12,
+                    background: "#fff", borderRadius: 8, padding: "6px 10px",
+                    border: `1px solid ${isWorst ? m.border : LINE}`,
+                  }}>
+                    <span style={{ fontWeight: 800, color: m.color, whiteSpace: "nowrap" }}>{m.icon} {m.label}</span>
+                    <span style={{ fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{p.label}</span>
+                    <span style={{ color: MUTED }}>— {p.detail}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -913,7 +989,8 @@ function InspectTab({ standards, inspections, currentUser }) {
           </div>
         )}
         {inspections.slice(0, 30).map(insp => {
-          const meta = insp.overallStatus ? STATUS_META[insp.overallStatus] : null;
+          const st = insp.finalStatus || insp.overallStatus;
+          const meta = st ? STATUS_META[st] : null;
           const condMeta = insp.conditionStatus && insp.conditionStatus !== "ok"
             ? STATUS_META[insp.conditionStatus] : null;
           return (
