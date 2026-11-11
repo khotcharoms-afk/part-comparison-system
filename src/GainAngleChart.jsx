@@ -40,12 +40,22 @@ export function computeAngleInfo(standardX, standardY, measuredX, measuredY) {
   return { angleStandard, angleMeasured, angleDiff, angleDiffPercent };
 }
 
-function niceTicks(min, max, count = 5) {
+// "Nice" round tick values (…, 0.9, 1.0, 1.1, … or 0, 2, 4, …) inside [min, max]
+function niceTicks(min, max, count = 6) {
   if (min === max) { min -= 1; max += 1; }
-  const step = (max - min) / count;
+  const raw = (max - min) / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
   const ticks = [];
-  for (let i = 0; i <= count; i++) ticks.push(min + step * i);
-  return ticks;
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) {
+    ticks.push(+v.toFixed(10));
+  }
+  return { ticks, step };
+}
+function fmtTick(v, step) {
+  const dec = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  return v.toFixed(Math.min(dec, 3));
 }
 
 // Builds a smooth SVG path ("d" attribute) through a series of points using
@@ -248,7 +258,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     py: margin + (1 - (y - minY) / (maxY - minY)) * plotH,
   });
 
-  const yTicks = niceTicks(minY, maxY);
+  const { ticks: yTicks, step: yStep } = niceTicks(minY, maxY);
 
   const clampZoom = z => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
   const zoomIn = () => setZoom(z => clampZoom(z * 1.5));
@@ -295,7 +305,10 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
   const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
-  const smoothPathStr = smoothPathFromPoints(linePoints);
+  // Measured values: straight segments between points — only what was actually
+  // measured, no invented bumps between points. (The standard stays a smooth
+  // curve because it represents the wheel's intended profile.)
+  const measuredPathStr = linePoints.map((pt, i) => `${i ? "L" : "M"}${pt.px},${pt.py}`).join(" ");
   const stdLinePoints = validStdSeries.map(p => toPx(p.idx, p.yVal));
   const stdSmoothPathStr = smoothPathFromPoints(stdLinePoints);
 
@@ -397,7 +410,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         width="100%" viewBox={`0 0 ${size} ${height}`}
         style={{
           touchAction: zoom > 1 ? "none" : "pan-y", cursor: zoom > 1 ? "grab" : "default", background: "#fcfdff", borderRadius: 8, display: "block",
-          height: "auto", aspectRatio: `${size} / ${height}`, maxHeight: height,
+          height: "auto", aspectRatio: `${size} / ${height}`,
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -410,13 +423,18 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           </clipPath>
         </defs>
 
-        {/* Y grid lines — kept unlabeled to avoid clutter */}
+        {/* Y grid lines with round-number labels */}
         {yTicks.map((t, i) => {
           const { py } = toPx(0, t);
           return (
-            <line key={`gy-${i}`} x1={margin} y1={py} x2={size - margin} y2={py} stroke="#f1f5f9" strokeWidth="1" />
+            <g key={`gy-${i}`}>
+              <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#eef2f7" strokeWidth="1" />
+              <text x={margin - 8} y={py + 3.5} fontSize="10.5" fill="#94a3b8" textAnchor="end">{fmtTick(t, yStep)}</text>
+            </g>
           );
         })}
+        <text x={14} y={margin + plotH / 2} fontSize="10.5" fill="#94a3b8" textAnchor="middle"
+          transform={`rotate(-90 14 ${margin + plotH / 2})`}>Gain Y</text>
 
         {/* X grid lines — a faint vertical line through each point index, like
             graph paper, so it's easy to trace straight up/down to read a
@@ -437,18 +455,9 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           return (
             <g>
               <line x1={margin} y1={py} x2={size - margin} y2={py} stroke="#cbd5e1" strokeWidth="1.3" />
-              <text x={margin - 4} y={py + 3} fontSize="10" fill="#94a3b8" textAnchor="end">0</text>
             </g>
           );
         })()}
-
-        {/* top/bottom range labels — minimal orientation without a full numbered axis */}
-        <text x={margin - 4} y={margin + 3} fontSize="10" fill="#cbd5e1" textAnchor="end">
-          {maxY.toFixed(2)}
-        </text>
-        <text x={margin - 4} y={height - margin + 1} fontSize="10" fill="#cbd5e1" textAnchor="end">
-          {minY.toFixed(2)}
-        </text>
 
         {/* X axis labels — point index */}
         {series.map((p) => {
@@ -479,32 +488,8 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
                 stroke="#64748B" strokeWidth="2" strokeDasharray="7 4" />
             )
           )}
-          {/* average measured line — flat, spans full width */}
-          {avgPy !== null && (
-            <line x1={margin} y1={avgPy} x2={size - margin} y2={avgPy}
-              stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 3" />
-          )}
-
-          {/* deviation connector from each point down/up to the standard —
-              follows the matching standard curve point (by index) when a
-              standard curve exists, otherwise falls back to the flat average line */}
-          {(stdPy !== null || hasStandardCurve) && linePoints.map((pt, i) => {
-            const measuredIdx = validSeries[i].idx;
-            const matchStd = hasStandardCurve
-              ? validStdSeries.find(sp => sp.idx === measuredIdx)
-              : null;
-            const targetPy = matchStd ? toPx(0, matchStd.yVal).py : stdPy;
-            if (targetPy == null) return null;
-            return (
-              <line key={`dev-${i}`} x1={pt.px} y1={pt.py} x2={pt.px} y2={targetPy}
-                stroke="#BFDBFE" strokeWidth="1" strokeDasharray="2 2" opacity="0.8" />
-            );
-          })}
-
-          {/* smooth curve through the raw entered points, in order — reads like a
-              wheel's profile curve instead of sharp straight segments */}
           {linePoints.length > 1 && (
-            <path d={smoothPathStr} fill="none" stroke="#2563EB" strokeWidth="2.4"
+            <path d={measuredPathStr} fill="none" stroke="#2563EB" strokeWidth="2.2"
               strokeLinejoin="round" strokeLinecap="round" />
           )}
 
@@ -535,7 +520,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         {(() => {
           const candidates = validSeries
             .map((p, i) => ({ p, d: devs[i] }))
-            .filter(({ p, d }) => d.status !== "ok" || activeIdx === p.idx)
+            .filter(({ p }) => activeIdx === p.idx)
             .sort((a, b) => {
               if (a.p.idx === activeIdx) return -1;
               if (b.p.idx === activeIdx) return 1;
@@ -578,6 +563,127 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           return out;
         })()}
       </svg>
+
+      {/* Deviation panel — % difference of each point from ITS OWN standard value,
+          on a fixed scale with the ±warning / ±critical limits. This is how QC
+          reports usually show a profile check: easy to read even when the raw
+          values are far apart in scale. Shares the X axis (and zoom/pan) above. */}
+      {bandRefs.length > 0 && validSeries.length > 0 && (() => {
+        const devH = 190, top = 22, bottom = 30;
+        const pH = devH - top - bottom;
+        const signed = validSeries.map((p, i) => {
+          const ref = devs[i].ref;
+          return ref ? ((p.yVal - ref) / Math.abs(ref)) * 100 : null;
+        });
+        const maxAbs = Math.max(0, ...signed.filter(v => v !== null).map(Math.abs));
+        // fixed, readable scale: at least ±1.5× the critical limit, at most ±50%
+        const R = Math.min(50, Math.max(critPct * 1.5, Math.ceil(maxAbs * 1.15)));
+        const yOf = v => top + (1 - (Math.max(-R, Math.min(R, v)) + R) / (2 * R)) * pH;
+        const xOf = idx => toPx(idx, 0).px;
+        const step = R <= 15 ? 5 : R <= 30 ? 10 : 25;
+        const ticks = [];
+        for (let v = -Math.floor(R / step) * step; v <= R; v += step) ticks.push(v);
+        const barW = Math.max(6, Math.min(26, (plotW / Math.max(totalPoints, 1)) * 0.5 * zoom));
+        return (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "0 0 4px 2px" }}>
+              % เบี่ยงจากมาตรฐาน รายจุด
+              <span style={{ fontWeight: 500, color: "#94a3b8", fontSize: 11 }}> · บวก = สูงกว่ามาตรฐาน, ลบ = ต่ำกว่า</span>
+            </div>
+            <svg width="100%" viewBox={`0 0 ${size} ${devH}`}
+              style={{ display: "block", background: "#fcfdff", borderRadius: 8, height: "auto", aspectRatio: `${size} / ${devH}` }}>
+              <defs>
+                <clipPath id="gac-dev-clip"><rect x={margin} y={top} width={plotW} height={pH} /></clipPath>
+              </defs>
+              {/* limit bands */}
+              <rect x={margin} y={yOf(critPct)} width={plotW} height={yOf(-critPct) - yOf(critPct)} fill="#FEF3C7" opacity="0.75" />
+              <rect x={margin} y={yOf(warnPct)} width={plotW} height={yOf(-warnPct) - yOf(warnPct)} fill="#DCFCE7" opacity="0.9" />
+              {ticks.map(v => (
+                <g key={`dt-${v}`}>
+                  <line x1={margin} x2={size - margin} y1={yOf(v)} y2={yOf(v)}
+                    stroke={v === 0 ? "#64748B" : "#eef2f7"} strokeWidth={v === 0 ? 1.6 : 1} />
+                  <text x={margin - 8} y={yOf(v) + 3.5} fontSize="10.5" textAnchor="end"
+                    fill={v === 0 ? "#475569" : "#94a3b8"} fontWeight={v === 0 ? 700 : 400}>
+                    {v > 0 ? `+${v}` : v}%
+                  </text>
+                </g>
+              ))}
+              {[warnPct, -warnPct, critPct, -critPct].map(v => (
+                <line key={`lim-${v}`} x1={margin} x2={size - margin} y1={yOf(v)} y2={yOf(v)}
+                  stroke={Math.abs(v) === critPct ? "#F59E0B" : "#86EFAC"} strokeWidth="1" strokeDasharray="4 3" />
+              ))}
+              <g clipPath="url(#gac-dev-clip)">
+                {validSeries.map((p, i) => {
+                  const v = signed[i];
+                  if (v === null) return null;
+                  const x = xOf(p.idx);
+                  const y0 = yOf(0), y1 = yOf(v);
+                  const st = POINT_STATUS[devs[i].status];
+                  const isActive = activeIdx === p.idx;
+                  return (
+                    <rect key={`bar-${p.idx}`} x={x - barW / 2} width={barW}
+                      y={Math.min(y0, y1)} height={Math.max(1.5, Math.abs(y1 - y0))}
+                      fill={st.fill} stroke={st.stroke} strokeWidth={isActive ? 2 : 1} rx="2"
+                      style={{ cursor: "pointer" }}
+                      onPointerEnter={() => setActiveIdx(p.idx)}
+                      onPointerLeave={() => setActiveIdx(cur => (cur === p.idx ? null : cur))}
+                      onClick={() => setActiveIdx(cur => (cur === p.idx ? null : p.idx))} />
+                  );
+                })}
+              </g>
+              {/* off-scale markers: a small arrow at the clipped end of the bar */}
+              {validSeries.map((p, i) => {
+                const v = signed[i];
+                if (v === null || Math.abs(v) <= R) return null;
+                const x = xOf(p.idx);
+                const yE = v > 0 ? top : top + pH;
+                const d = v > 0
+                  ? `M${x - 5},${yE + 7} L${x},${yE} L${x + 5},${yE + 7} Z`
+                  : `M${x - 5},${yE - 7} L${x},${yE} L${x + 5},${yE - 7} Z`;
+                return <path key={`ar-${p.idx}`} d={d} fill="#DC2626" pointerEvents="none" />;
+              })}
+              {/* value labels: hovered bar first, then largest deviations; a label is
+                  skipped if it would overlap one already placed (hover/tap still shows it) */}
+              {(() => {
+                const order = validSeries
+                  .map((p, i) => ({ p, i, v: signed[i] }))
+                  .filter(({ p, i, v }) => v !== null && (devs[i].status !== "ok" || activeIdx === p.idx))
+                  .sort((a, b) => (a.p.idx === activeIdx ? -1 : b.p.idx === activeIdx ? 1 : Math.abs(b.v) - Math.abs(a.v)));
+                const placed = [];
+                const out = [];
+                for (const { p, i, v } of order) {
+                  const x = xOf(p.idx);
+                  if (x < margin - 1 || x > size - margin + 1) continue;
+                  const label = `${v > 0 ? "+" : ""}${Math.round(v)}%`;
+                  const w = label.length * 6.2 + 4;
+                  const up = v >= 0;
+                  const off = Math.abs(v) > R;
+                  const y = off ? (up ? top - 6 : top + pH + 14) : up ? yOf(v) - 5 : yOf(v) + 13;
+                  const box = { x1: x - w / 2, x2: x + w / 2, y1: y - 10, y2: y + 2 };
+                  if (p.idx !== activeIdx && placed.some(b => b.x1 < box.x2 && b.x2 > box.x1 && b.y1 < box.y2 && b.y2 > box.y1)) continue;
+                  placed.push(box);
+                  const st = POINT_STATUS[devs[i].status];
+                  out.push(
+                    <text key={`bl-${p.idx}`} x={x} y={y} fontSize="10" fontWeight="700" fill={st.text}
+                      textAnchor="middle" stroke="#fff" strokeWidth="3" paintOrder="stroke" pointerEvents="none">
+                      {label}
+                    </text>
+                  );
+                }
+                return out;
+              })()}
+              {series.map(p => {
+                const x = xOf(p.idx);
+                if (x < margin - 1 || x > size - margin + 1) return null;
+                return (
+                  <text key={`dx-${p.idx}`} x={x} y={devH - 8} fontSize="10.5" fill={activeIdx === p.idx ? "#1E3A8A" : "#94a3b8"}
+                    fontWeight={activeIdx === p.idx ? 700 : 400} textAnchor="middle">#{p.idx}</text>
+                );
+              })}
+            </svg>
+          </div>
+        );
+      })()}
 
       <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 8 }}>
@@ -640,7 +746,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           </div>
         )}
         <div style={{ fontSize: 9.5, color: "#cbd5e1", marginTop: 8 }}>
-          ชี้/แตะที่จุดเพื่อดูค่า · จุดเหลือง/แดง = หลุดเกณฑ์ (แสดงตัวเลขให้อัตโนมัติ) · ลากเพื่อเลื่อน · scroll/ปุ่ม +− เพื่อซูม
+          ชี้/แตะที่จุดหรือแท่งเพื่อดูค่า · สีเหลือง/แดง = หลุดเกณฑ์ · กราฟล่างแสดง % เบี่ยงของแต่ละจุดเทียบกับมาตรฐานของจุดนั้น · scroll/ปุ่ม +− เพื่อซูม
         </div>
       </div>
     </div>
