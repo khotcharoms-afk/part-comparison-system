@@ -317,16 +317,10 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     const up = bandAt(pct, 1).map(b => toPx(b.idx, b.y));
     const lo = bandAt(pct, -1).map(b => toPx(b.idx, b.y)).reverse();
     if (up.length < 2) return "";
-    // extend flat to the plot edges so the band covers the whole width
-    const ext = (pts, leftFirst) => {
-      const first = pts[0], last = pts[pts.length - 1];
-      const L = margin - 10, Rr = size - margin + 10;
-      return leftFirst
-        ? [{ px: L, py: first.py }, ...pts, { px: Rr, py: last.py }]
-        : [{ px: Rr, py: first.py }, ...pts, { px: L, py: last.py }];
-    };
-    const upP = smoothPathFromPoints(ext(up, true));
-    const loP = smoothPathFromPoints(ext(lo, false)).replace(/^M/, "L");
+    // Same smooth curve as the standard line, scaled ±pct — so the band follows
+    // the standard exactly and starts/ends at the same points (#1 … #N).
+    const upP = smoothPathFromPoints(up);
+    const loP = smoothPathFromPoints(lo).replace(/^M/, "L");
     return `${upP} ${loP} Z`;
   };
   const critBand = bandPath(critPct);
