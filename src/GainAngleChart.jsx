@@ -235,13 +235,14 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
 
-  const halfW = baseHalfW / zoom, halfH = baseHalfH / zoom;
+  // X axis is just the point order (#1..#N) — always shown in full; zoom/pan are vertical only
+  const halfW = baseHalfW, halfH = baseHalfH / zoom;
   // Clamp how far the view can be dragged, so panning can never scroll the
   // data out of view entirely — the visible window is always kept within the
   // original (zoom = 1) bounds of the chart.
   const maxPanX = Math.max(0, baseHalfW - halfW);
   const maxPanY = Math.max(0, baseHalfH - halfH);
-  const clampedPanX = Math.min(maxPanX, Math.max(-maxPanX, pan.x));
+  const clampedPanX = 0;
   const clampedPanY = Math.min(maxPanY, Math.max(-maxPanY, pan.y));
   const panCenterX = baseCenterX + clampedPanX, panCenterY = baseCenterY + clampedPanY;
   const minX = panCenterX - halfW, maxX = panCenterX + halfW;
@@ -295,7 +296,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     const dPx = e.clientX - startClientX, dPy = e.clientY - startClientY;
     // Store the raw (unclamped) drag offset — clamping happens once, on render,
     // via clampedPanX/clampedPanY above, so this stays simple and always in sync.
-    setPan({ x: startPan.x - dPx / ppuX, y: startPan.y + dPy / ppuY });
+    setPan({ x: 0, y: startPan.y + dPy / ppuY });
   };
   const handlePointerUp = (e) => {
     svgRef.current?.releasePointerCapture?.(e.pointerId);
@@ -434,7 +435,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         ref={svgRef}
         width="100%" viewBox={`0 0 ${size} ${height}`}
         style={{
-          touchAction: zoom > 1 ? "none" : "pan-y", cursor: zoom > 1 ? "grab" : "default", background: "#fcfdff", borderRadius: 8, display: "block",
+          touchAction: zoom > 1 ? "none" : "pan-y", cursor: zoom > 1 ? "grab" : "default", userSelect: "none", WebkitUserSelect: "none", background: "#fcfdff", borderRadius: 8, display: "block",
           height: "auto", aspectRatio: `${size} / ${height}`,
         }}
         onPointerDown={handlePointerDown}
@@ -585,7 +586,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
             const { px, py } = toPx(p.idx, p.yVal);
             if (px < margin - 1 || px > size - margin + 1 || py < margin - 1 || py > height - margin + 1) continue;
             const line1 = `#${p.idx} Y=${p.yVal}${d.pct !== null ? ` (${d.pct.toFixed(1)}%)` : ""}`;
-            const line2 = `X=${p.x}${d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : ""}`;
+            const line2 = d.ref !== null ? `มาตรฐาน ${+d.ref.toFixed(3)}` : "";
             const w = Math.max(line1.length * 6.4, line2.length * 5.2) + 6;
             const anchor = px < margin + w / 2 ? "start" : px > size - margin - w / 2 ? "end" : "middle";
             const x1 = anchor === "start" ? px - 3 : anchor === "end" ? px - w + 3 : px - w / 2;
@@ -634,7 +635,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         const step = R <= 15 ? 5 : R <= 30 ? 10 : 25;
         const ticks = [];
         for (let v = -Math.floor(R / step) * step; v <= R; v += step) ticks.push(v);
-        const barW = Math.max(6, Math.min(26, (plotW / Math.max(totalPoints, 1)) * 0.5 * zoom));
+        const barW = Math.max(6, Math.min(26, (plotW / Math.max(totalPoints, 1)) * 0.5));
         return (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "0 0 4px 2px" }}>
@@ -744,7 +745,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               มาตรฐาน (ยางใหม่)
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasStandardX ? sx : "—"} &nbsp; Gain Y: {hasStandardY ? sy : "—"}
+              Gain Y เฉลี่ย: {hasStandardY ? sy.toFixed(3) : "—"}
             </div>
           </div>
           <div>
@@ -775,22 +776,13 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               ค่าเฉลี่ยที่วัดได้
             </div>
             <div style={{ marginLeft: 16 }}>
-              Gain X: {hasAvgX ? avgX.toFixed(3) : "—"} &nbsp; Gain Y: {hasAvgY ? avgY.toFixed(3) : "—"}
+              Gain Y เฉลี่ย: {hasAvgY ? avgY.toFixed(3) : "—"}
             </div>
           </div>
         </div>
 
-        {(diff !== null || diffX !== null) ? (
+        {diff !== null ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {diffX !== null && (
-              <div style={{
-                padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
-                fontWeight: 700, color: "#0f172a", fontSize: 13, display: "inline-block",
-              }}>
-                Gain X เปลี่ยนไป {Math.abs(diffX).toFixed(3)}
-                {diffXPercent !== null && ` (${diffXPercent.toFixed(1)}%)`}
-              </div>
-            )}
             {diff !== null && (
               <div style={{
                 padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0",
@@ -807,7 +799,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           </div>
         )}
         <div style={{ fontSize: 9.5, color: "#cbd5e1", marginTop: 8 }}>
-          ชี้/แตะที่จุดหรือแท่งเพื่อดูค่า · สีเหลือง/แดง = หลุดเกณฑ์ · กราฟล่างแสดง % เบี่ยงของแต่ละจุดเทียบกับมาตรฐานของจุดนั้น · scroll/ปุ่ม +− เพื่อซูม
+          ชี้/แตะที่จุดหรือแท่งเพื่อดูค่า · สีเหลือง/แดง = หลุดเกณฑ์ · กราฟล่างแสดง % เบี่ยงของแต่ละจุดเทียบกับมาตรฐานของจุดนั้น · scroll/ปุ่ม +− เพื่อซูมแนวตั้ง (ซูมแล้วลากขึ้น-ลงได้)
         </div>
       </div>
     </div>
