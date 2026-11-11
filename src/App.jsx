@@ -17,7 +17,7 @@ export default function App() {
     return (
       <div style={{
         minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#f8fafc", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        background: "#f1f5f9", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         padding: 16,
       }}>
         <div style={{
@@ -26,12 +26,20 @@ export default function App() {
         }}>
           <div style={{
             width: 44, height: 44, borderRadius: 12,
-            background: "linear-gradient(135deg,#F97316,#6B21A8)",
+            background: "linear-gradient(135deg,#2563EB,#1E3A8A)",
             display: "flex", alignItems: "center", justifyContent: "center",
             color: "#fff", fontSize: 20, fontWeight: 800, marginBottom: 14,
-          }}>⚙️</div>
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="3" />
+              <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+            </svg>
+          </div>
           <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
-            วัดขนาดล้อหุ่นยนต์
+            ตรวจสภาพล้อ
+          </div>
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: -2, marginBottom: 6 }}>
+            Wheel Condition Inspection
           </div>
           <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>
             กรอกชื่อของคุณก่อนเริ่มใช้งาน ใช้บันทึกในประวัติการตรวจวัด
@@ -49,7 +57,7 @@ export default function App() {
           <button
             onClick={() => draft.trim() && setName(draft.trim())}
             style={{
-              width: "100%", background: "#F97316", color: "#fff", border: "none",
+              width: "100%", background: "#2563EB", color: "#fff", border: "none",
               borderRadius: 8, padding: "10px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
             }}
           >
@@ -60,5 +68,11 @@ export default function App() {
     );
   }
 
-  return <PartPage currentUser={{ name, role: "admin" }} />;
+  const changeUser = () => {
+    localStorage.removeItem("pcs_username");
+    setDraft(name);
+    setName("");
+  };
+
+  return <PartPage currentUser={{ name, role: "admin" }} onChangeUser={changeUser} />;
 }

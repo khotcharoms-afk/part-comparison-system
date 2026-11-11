@@ -59,10 +59,13 @@ export default function Part3DView({ results = {}, overallStatus, modelUrl }) {
     controls.minDistance = 1.5;
     controls.maxDistance = 10;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x94a3b8, 1.4));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
     dirLight.position.set(5, 8, 5);
     scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    fillLight.position.set(-5, 2, -4);
+    scene.add(fillLight);
 
     const group = new THREE.Group();
     scene.add(group);
@@ -107,7 +110,14 @@ export default function Part3DView({ results = {}, overallStatus, modelUrl }) {
         // clone material so we never mutate one shared across multiple meshes
         child.material = child.material.clone();
         disposables.materials.push(child.material);
+        // glTF files without materials default to metalness=1, which renders almost black
+        // without an environment map — force a matte, plastic-like look instead.
+        if ("metalness" in child.material) {
+          child.material.metalness = Math.min(child.material.metalness ?? 0, 0.15);
+          child.material.roughness = Math.max(child.material.roughness ?? 0.5, 0.45);
+        }
         const key = FIELD_KEYS.find(k => name.includes(k.toLowerCase()));
+        if (!key && child.material.color) child.material.color.set(IDLE_COLOR);
         if (key) matched[key].push(child.material);
       });
       fieldMatsRef.current = matched;

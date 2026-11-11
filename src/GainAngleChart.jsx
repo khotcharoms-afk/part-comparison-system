@@ -298,8 +298,11 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
 
       <svg
         ref={svgRef}
-        width="100%" height={height} viewBox={`0 0 ${size} ${height}`}
-        style={{ touchAction: "none", cursor: "grab", background: "#fcfdff", borderRadius: 8, display: "block" }}
+        width="100%" viewBox={`0 0 ${size} ${height}`}
+        style={{
+          touchAction: "none", cursor: "grab", background: "#fcfdff", borderRadius: 8, display: "block",
+          height: "auto", aspectRatio: `${size} / ${height}`, maxHeight: height,
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

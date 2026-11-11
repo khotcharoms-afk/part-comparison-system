@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 
 const BAUD_OPTIONS = [2400, 4800, 9600, 19200];
 
@@ -24,6 +24,10 @@ export default function CaliperConnector({ onValue, disabled }) {
   const portRef = useRef(null);
   const readerRef = useRef(null);
   const keepReadingRef = useRef(false);
+  // Always call the latest onValue — the read loop below lives for the whole connection,
+  // so capturing onValue directly would keep using the stale one from connect-time.
+  const onValueRef = useRef(onValue);
+  useEffect(() => { onValueRef.current = onValue; }, [onValue]);
 
   const appendLog = (line) => setRawLog(prev => [...prev.slice(-9), line]);
 
@@ -63,7 +67,7 @@ export default function CaliperConnector({ onValue, disabled }) {
             if (line.trim()) {
               appendLog(line.trim());
               const num = parseNumber(line);
-              if (num !== null) onValue?.(num);
+              if (num !== null) onValueRef.current?.(num);
             }
           }
         }
@@ -73,7 +77,7 @@ export default function CaliperConnector({ onValue, disabled }) {
       appendLog("⚠️ เชื่อมต่อไม่สำเร็จ: " + e.message);
       setConnected(false);
     }
-  }, [supported, baud, onValue]);
+  }, [supported, baud]);
 
   const disconnect = useCallback(async () => {
     keepReadingRef.current = false;
@@ -114,7 +118,7 @@ export default function CaliperConnector({ onValue, disabled }) {
               {BAUD_OPTIONS.map(b => <option key={b} value={b}>{b} baud</option>)}
             </select>
             <button onClick={connect} disabled={disabled} style={{
-              background: "#F97316", color: "#fff", border: "none", borderRadius: 6,
+              background: "#2563EB", color: "#fff", border: "none", borderRadius: 6,
               padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
               opacity: disabled ? 0.5 : 1,
             }}>🔌 เชื่อมต่อ</button>

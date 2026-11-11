@@ -8,10 +8,43 @@ import Part3DView from "./Part3DView.jsx";
 import CaliperConnector from "./CaliperConnector.jsx";
 import GainAngleChart, { computeAngleInfo, computeAveragePoint } from "./GainAngleChart.jsx";
 
-const ORANGE = "#F97316";
-const PURPLE = "#6B21A8";
-const ORANGE_LIGHT = "#FFF7ED";
-const ORANGE_BORDER = "#FED7AA";
+// Theme — blue/slate, matching the Gain chart colors
+const PRIMARY = "#2563EB";
+const PRIMARY_DARK = "#1E3A8A";
+const PRIMARY_LIGHT = "#EFF6FF";
+const PRIMARY_BORDER = "#BFDBFE";
+const INK = "#0f172a";
+const MUTED = "#64748b";
+const LINE = "#e2e8f0";
+
+// Re-renders on window resize so layouts switch between phone / desktop without a reload.
+function useViewportWidth() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return w;
+}
+
+function formatDateTime(ts) {
+  const d = ts?.toDate ? ts.toDate() : null;
+  if (!d) return "";
+  return d.toLocaleString("th-TH", {
+    day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function WheelIcon({ size = 20, color = "#fff" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+    </svg>
+  );
+}
 
 const FIELDS = [
   { key: "diameter", label: "เส้นผ่านศูนย์กลาง (cm)" },
@@ -21,6 +54,13 @@ const FIELDS = [
 // Gain X/Y aren't part of the diameter/thickness threshold system — both the standard
 // and each inspection collect up to 10 (x,y) points, averaged to derive an angle
 // (atan2) and compare standard vs measured orientation.
+
+// Parse a form value to a number, keeping 0 (unlike `parseFloat(v) || null`).
+function toNum(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function calcDiff(measured, standard) {
   const m = parseFloat(measured);
@@ -63,7 +103,7 @@ function conditionStatusFrom(condition) {
   return "warning";
 }
 
-export default function PartPage({ currentUser, onBack, isMobile }) {
+export default function PartPage({ currentUser, onBack, onChangeUser }) {
   const [tab, setTab] = useState("inspect"); // "inspect" | "standards"
   const [standards, setStandards] = useState([]);
   const [inspections, setInspections] = useState([]);
@@ -87,42 +127,61 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
   }, []);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+    <div style={{ minHeight: "100vh", background: "#f1f5f9" }}>
       {/* Header */}
       <div style={{
-        background: "#fff", borderBottom: "1px solid #e2e8f0",
-        padding: "14px 16px", display: "flex", alignItems: "center", gap: 12,
+        background: "#fff", borderBottom: `1px solid ${LINE}`,
         position: "sticky", top: 0, zIndex: 40,
       }}>
-        {onBack && (
-          <button onClick={onBack} style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, color: "#475569", padding: 4,
-          }}>←</button>
-        )}
         <div style={{
-          width: 34, height: 34, borderRadius: 9,
-          background: `linear-gradient(135deg, ${ORANGE}, ${PURPLE})`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#fff", fontSize: 15, fontWeight: 800,
-        }}>⚙️</div>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>ตรวจสภาพล้อ</div>
-          <div style={{ fontSize: 11, color: "#94a3b8" }}>Wheel Condition Inspection</div>
+          maxWidth: 1200, margin: "0 auto", padding: "12px 16px",
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          {onBack && (
+            <button onClick={onBack} style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 18, color: "#475569", padding: 4,
+            }}>←</button>
+          )}
+          <div style={{
+            width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+            background: `linear-gradient(135deg, ${PRIMARY}, ${PRIMARY_DARK})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(37,99,235,0.25)",
+          }}><WheelIcon /></div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: INK, lineHeight: 1.2 }}>ตรวจสภาพล้อ</div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>Wheel Condition Inspection</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              fontSize: 12, color: "#334155", background: "#f1f5f9", border: `1px solid ${LINE}`,
+              borderRadius: 999, padding: "5px 10px", maxWidth: 160,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>👤 {currentUser?.name}</span>
+            {onChangeUser && (
+              <button onClick={onChangeUser} title="เปลี่ยนชื่อผู้ใช้" style={{
+                background: "none", border: "none", color: PRIMARY, fontSize: 11,
+                fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 4,
+              }}>เปลี่ยน</button>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Tabs */}
-      <div style={{
-        display: "flex", gap: 8, padding: "12px 16px 0", background: "#fff",
-        borderBottom: "1px solid #e2e8f0",
-      }}>
-        <TabButton active={tab === "inspect"} onClick={() => setTab("inspect")}>
-          📋 บันทึกค่าตรวจวัด
-        </TabButton>
-        <TabButton active={tab === "standards"} onClick={() => setTab("standards")}>
-          📐 ค่ามาตรฐาน
-        </TabButton>
+        {/* Tabs */}
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 16px 12px" }}>
+          <div style={{
+            display: "inline-flex", gap: 4, padding: 4, background: "#f1f5f9",
+            borderRadius: 10, border: `1px solid ${LINE}`,
+          }}>
+            <TabButton active={tab === "inspect"} onClick={() => setTab("inspect")}>
+              📋 บันทึกค่าตรวจวัด
+            </TabButton>
+            <TabButton active={tab === "standards"} onClick={() => setTab("standards")}>
+              📐 ค่ามาตรฐาน
+            </TabButton>
+          </div>
+        </div>
       </div>
 
       <div style={{ padding: 16, maxWidth: 1200, margin: "0 auto" }}>
@@ -149,10 +208,10 @@ export default function PartPage({ currentUser, onBack, isMobile }) {
 function TabButton({ active, onClick, children }) {
   return (
     <button onClick={onClick} style={{
-      background: "none", border: "none", cursor: "pointer",
-      padding: "10px 4px", fontSize: 13, fontWeight: 700,
-      color: active ? ORANGE : "#94a3b8",
-      borderBottom: active ? `2px solid ${ORANGE}` : "2px solid transparent",
+      background: active ? "#fff" : "transparent", border: "none", cursor: "pointer",
+      padding: "8px 14px", fontSize: 13, fontWeight: 700, borderRadius: 7,
+      color: active ? PRIMARY : MUTED,
+      boxShadow: active ? "0 1px 3px rgba(15,23,42,0.12)" : "none",
       fontFamily: "inherit",
     }}>
       {children}
@@ -230,23 +289,29 @@ function StandardsTab({ standards, canManage, currentUser }) {
       alert("กรุณากรอกรุ่นและประเภทอะไหล่");
       return;
     }
+    const warn = toNum(form.warning) ?? 5;
+    const crit = toNum(form.critical) ?? 10;
+    if (warn >= crit) {
+      alert("เกณฑ์ ⚠️ เตือน ต้องน้อยกว่า 🔴 วิกฤต");
+      return;
+    }
     setSaving(true);
     const gainAvg = computeAveragePoint(gainPoints);
     const payload = {
       model: form.model.trim(),
       partType: form.partType.trim(),
       specs: {
-        diameter: parseFloat(form.diameter) || 0,
-        thickness: parseFloat(form.thickness) || 0,
+        diameter: toNum(form.diameter) ?? 0,
+        thickness: toNum(form.thickness) ?? 0,
         gainPoints: gainPoints.map(p => ({
-          x: parseFloat(p.x) || null,
-          y: parseFloat(p.y) || null,
+          x: toNum(p.x),
+          y: toNum(p.y),
         })),
         gainAverage: { x: gainAvg.avgX, y: gainAvg.avgY, count: gainAvg.count },
       },
       thresholds: {
-        warning: parseFloat(form.warning) || 5,
-        critical: parseFloat(form.critical) || 10,
+        warning: warn,
+        critical: crit,
       },
       modelUrl: form.modelUrl.trim(),
       updatedBy: currentUser?.name || "unknown",
@@ -270,14 +335,18 @@ function StandardsTab({ standards, canManage, currentUser }) {
 
   const handleDelete = async (id) => {
     if (!confirm("ลบค่ามาตรฐานนี้?")) return;
-    await deleteDoc(doc(db, "partStandards", id));
+    try {
+      await deleteDoc(doc(db, "partStandards", id));
+    } catch (e) {
+      alert("ลบไม่สำเร็จ: " + e.message);
+    }
   };
 
   return (
     <div>
       {canManage && (
         <button onClick={openNew} style={{
-          width: "100%", background: ORANGE, color: "#fff", border: "none",
+          width: "100%", background: PRIMARY, color: "#fff", border: "none",
           borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700,
           cursor: "pointer", marginBottom: 16, fontFamily: "inherit",
         }}>
@@ -294,7 +363,8 @@ function StandardsTab({ standards, canManage, currentUser }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {standards.map((s) => (
           <div key={s.id} style={{
-            background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14,
+            background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14, padding: 16,
+            boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
               <div>
@@ -317,11 +387,11 @@ function StandardsTab({ standards, canManage, currentUser }) {
             }}>
               {FIELDS.map(f => (
                 <div key={f.key} style={{
-                  background: ORANGE_LIGHT, border: `1px solid ${ORANGE_BORDER}`,
+                  background: PRIMARY_LIGHT, border: `1px solid ${PRIMARY_BORDER}`,
                   borderRadius: 8, padding: "6px 8px", textAlign: "center",
                 }}>
-                  <div style={{ fontSize: 9, color: "#c2410c", fontWeight: 600 }}>{f.label}</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#7c2d12" }}>{s.specs?.[f.key]}</div>
+                  <div style={{ fontSize: 10, color: PRIMARY, fontWeight: 600 }}>{f.label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: PRIMARY_DARK }}>{s.specs?.[f.key]}</div>
                 </div>
               ))}
             </div>
@@ -330,20 +400,20 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 8,
               }}>
                 <div style={{
-                  background: "#F5F3FF", border: "1px solid #DDD6FE",
+                  background: "#f8fafc", border: `1px solid ${LINE}`,
                   borderRadius: 8, padding: "6px 8px", textAlign: "center",
                 }}>
-                  <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>Gain X (เฉลี่ย)</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>
+                  <div style={{ fontSize: 10, color: MUTED, fontWeight: 600 }}>Gain X (เฉลี่ย)</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>
                     {s.specs.gainAverage.x != null ? s.specs.gainAverage.x.toFixed(2) : "—"}
                   </div>
                 </div>
                 <div style={{
-                  background: "#F5F3FF", border: "1px solid #DDD6FE",
+                  background: "#f8fafc", border: `1px solid ${LINE}`,
                   borderRadius: 8, padding: "6px 8px", textAlign: "center",
                 }}>
-                  <div style={{ fontSize: 9, color: "#6B21A8", fontWeight: 600 }}>Gain Y (เฉลี่ย)</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#4c1d95" }}>
+                  <div style={{ fontSize: 10, color: MUTED, fontWeight: 600 }}>Gain Y (เฉลี่ย)</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>
                     {s.specs.gainAverage.y != null ? s.specs.gainAverage.y.toFixed(2) : "—"}
                   </div>
                 </div>
@@ -389,9 +459,9 @@ function StandardsTab({ standards, canManage, currentUser }) {
               {GAIN_POINT_OPTIONS.map(n => (
                 <button key={n} type="button" onClick={() => changePointCount(n)} style={{
                   padding: "4px 12px", borderRadius: 6,
-                  border: pointCount === n ? "1px solid #F97316" : "1px solid #e2e8f0",
-                  background: pointCount === n ? "#FFF7ED" : "#fff",
-                  color: pointCount === n ? "#c2410c" : "#475569",
+                  border: pointCount === n ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
+                  background: pointCount === n ? PRIMARY_LIGHT : "#fff",
+                  color: pointCount === n ? PRIMARY : "#475569",
                   fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
                 }}>{n} จุด</button>
               ))}
@@ -449,7 +519,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 borderRadius: 8, padding: "11px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
               }}>ยกเลิก</button>
               <button onClick={handleSave} disabled={saving} style={{
-                flex: 1, background: ORANGE, border: "none", color: "#fff",
+                flex: 1, background: PRIMARY, border: "none", color: "#fff",
                 borderRadius: 8, padding: "11px", fontWeight: 700, cursor: "pointer",
                 fontFamily: "inherit", opacity: saving ? 0.6 : 1,
               }}>{saving ? "กำลังบันทึก..." : "บันทึก"}</button>
@@ -486,6 +556,9 @@ function InspectTab({ standards, inspections, currentUser }) {
   const gainRefs = useRef({});
   const [condition, setCondition] = useState(emptyCondition);
   const [conditionNote, setConditionNote] = useState("");
+  const vw = useViewportWidth();
+  const stackGain = vw < 760;      // table above chart instead of side-by-side
+  const narrow = vw < 500;
 
   const selected = standards.find(s => s.id === selectedId);
   const requiredGainCount = selected?.specs?.gainPoints?.length || 10;
@@ -585,14 +658,14 @@ function InspectTab({ standards, inspections, currentUser }) {
         standardId: selected.id,
         serialNo: serialNo.trim(),
         values: {
-          diameter: parseFloat(values.diameter) || null,
-          thickness: parseFloat(values.thickness) || null,
+          diameter: toNum(values.diameter),
+          thickness: toNum(values.thickness),
         },
         results: liveResults,
         overallStatus,
         gainPoints: gainPoints.map(p => ({
-          x: parseFloat(p.x) || null,
-          y: parseFloat(p.y) || null,
+          x: toNum(p.x),
+          y: toNum(p.y),
         })),
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
@@ -611,8 +684,8 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   return (
     <div>
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <FormLabel>เลือกรุ่น / ประเภทอะไหล่</FormLabel>
+      <Card>
+        <SectionTitle step={1} title="เลือกรุ่น / อะไหล่" />
         <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={selectStyle}>
           <option value="">-- เลือก --</option>
           {standards.map(s => (
@@ -624,12 +697,13 @@ function InspectTab({ standards, inspections, currentUser }) {
           <>
             <div style={{
               display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8,
-              margin: "12px 0", padding: 10, background: "#f8fafc", borderRadius: 8,
+              margin: "12px 0", padding: 10, background: PRIMARY_LIGHT,
+              border: `1px solid ${PRIMARY_BORDER}`, borderRadius: 10,
             }}>
               {FIELDS.map(f => (
                 <div key={f.key} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 9, color: "#94a3b8" }}>{f.label}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>{selected.specs?.[f.key]}</div>
+                  <div style={{ fontSize: 10, color: PRIMARY }}>มาตรฐาน · {f.label}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: PRIMARY_DARK }}>{selected.specs?.[f.key]}</div>
                 </div>
               ))}
             </div>
@@ -639,12 +713,12 @@ function InspectTab({ standards, inspections, currentUser }) {
         )}
 
         <div style={{ marginTop: 14 }}>
-          <FormField label="Serial No." value={serialNo} onChange={setSerialNo} />
+          <FormField label="Serial No." value={serialNo} onChange={setSerialNo} placeholder="หมายเลขล้อ / หุ่นยนต์" />
         </div>
+      </Card>
 
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "16px 0 8px" }}>
-          ค่าที่วัดได้
-        </div>
+      <Card dim={!selected}>
+        <SectionTitle step={2} title="ค่าที่วัดได้" />
 
         <CaliperConnector onValue={handleCaliperValue} disabled={!selected} />
 
@@ -656,7 +730,7 @@ function InspectTab({ standards, inspections, currentUser }) {
             return (
               <div key={f.key} style={{
                 borderRadius: 10, padding: isActive ? 4 : 0,
-                boxShadow: isActive ? "0 0 0 2px #F97316" : "none",
+                boxShadow: isActive ? `0 0 0 2px ${PRIMARY}` : "none",
               }}>
                 <FormField
                   ref={el => (fieldRefs.current[f.key] = el)}
@@ -678,9 +752,10 @@ function InspectTab({ standards, inspections, currentUser }) {
           })}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "16px 0 4px" }}>
-          Gain X / Gain Y — วัดละเอียด {gainPoints.length} จุด (สำหรับคำนวณมุม)
-        </div>
+      </Card>
+
+      <Card dim={!selected}>
+        <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด`} />
         <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
           กรอกเท่าที่วัดได้ ไม่ต้องครบทุกจุดก็คำนวณได้ (เฉลี่ยเฉพาะจุดที่กรอกครบทั้ง X และ Y)
           {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
@@ -693,7 +768,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         `}</style>
         <div style={{
           display: "grid",
-          gridTemplateColumns: isMobileGrid() === "1fr" ? "1fr" : "280px minmax(0, 1fr)",
+          gridTemplateColumns: stackGain ? "1fr" : "220px minmax(0, 1fr)",
           gap: 16, alignItems: "start",
         }}>
           <div>
@@ -715,8 +790,8 @@ function InspectTab({ standards, inspections, currentUser }) {
                       onFocus={() => setActiveTargetKey(`gain:${i}:x`)}
                       style={{
                         flex: 1, minWidth: 0, maxWidth: 68, borderRadius: 5,
-                        border: isActiveX ? "1px solid #F97316" : "1px solid #e2e8f0",
-                        boxShadow: isActiveX ? "0 0 0 2px #FFEDD5" : "none",
+                        border: isActiveX ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
+                        boxShadow: isActiveX ? `0 0 0 2px ${PRIMARY_BORDER}` : "none",
                         padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
                         background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                       }}
@@ -729,8 +804,8 @@ function InspectTab({ standards, inspections, currentUser }) {
                       onFocus={() => setActiveTargetKey(`gain:${i}:y`)}
                       style={{
                         flex: 1, minWidth: 0, maxWidth: 68, borderRadius: 5,
-                        border: isActiveY ? "1px solid #F97316" : "1px solid #e2e8f0",
-                        boxShadow: isActiveY ? "0 0 0 2px #FFEDD5" : "none",
+                        border: isActiveY ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
+                        boxShadow: isActiveY ? `0 0 0 2px ${PRIMARY_BORDER}` : "none",
                         padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
                         background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                       }}
@@ -742,7 +817,7 @@ function InspectTab({ standards, inspections, currentUser }) {
           </div>
 
           {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null) && (
-            <div style={{ position: isMobileGrid() === "1fr" ? "static" : "sticky", top: 12 }}>
+            <div style={{ position: stackGain ? "static" : "sticky", top: 110 }}>
               <GainAngleChart
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
                 standardPoints={selected.specs?.gainPoints}
@@ -751,13 +826,12 @@ function InspectTab({ standards, inspections, currentUser }) {
             </div>
           )}
         </div>
+      </Card>
 
-
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "18px 0 8px" }}>
-          สภาพผิวหน้ายาง (ตรวจด้วยสายตา — ไม่ต้องใช้เครื่องมือ)
-        </div>
+      <Card dim={!selected}>
+        <SectionTitle step={4} title="สภาพผิวหน้ายาง" hint="ตรวจด้วยสายตา ไม่ต้องใช้เครื่องมือ" />
         <div style={{
-          display: "grid", gridTemplateColumns: isMobileGrid(), gap: 8,
+          display: "grid", gridTemplateColumns: narrow ? "1fr" : "repeat(3, 1fr)", gap: 8,
           background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12,
         }}>
           {CONDITION_ITEMS.map(c => (
@@ -795,9 +869,12 @@ function InspectTab({ standards, inspections, currentUser }) {
           </div>
         )}
 
+      </Card>
+
+      <Card>
         {overallStatus && (
           <div style={{
-            marginTop: 16, padding: 12, borderRadius: 10, textAlign: "center",
+            marginBottom: 12, padding: 12, borderRadius: 10, textAlign: "center",
             background: STATUS_META[overallStatus].bg,
             border: `1px solid ${STATUS_META[overallStatus].border}`,
             color: STATUS_META[overallStatus].color, fontWeight: 800, fontSize: 14,
@@ -807,13 +884,14 @@ function InspectTab({ standards, inspections, currentUser }) {
         )}
 
         <button onClick={handleSubmit} disabled={saving} style={{
-          width: "100%", marginTop: 16, background: PURPLE, color: "#fff", border: "none",
-          borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700,
+          width: "100%", background: PRIMARY, color: "#fff", border: "none",
+          borderRadius: 10, padding: "14px", fontSize: 15, fontWeight: 800,
+          boxShadow: "0 2px 8px rgba(37,99,235,0.25)",
           cursor: "pointer", fontFamily: "inherit", opacity: saving ? 0.6 : 1,
         }}>
-          {saving ? "กำลังบันทึก..." : "บันทึกผลตรวจวัด"}
+          {saving ? "กำลังบันทึก..." : "💾 บันทึกผลตรวจวัด"}
         </button>
-      </div>
+      </Card>
 
       <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: "20px 0 10px" }}>
         ประวัติการตรวจวัดล่าสุด
@@ -830,15 +908,23 @@ function InspectTab({ standards, inspections, currentUser }) {
             ? STATUS_META[insp.conditionStatus] : null;
           return (
             <div key={insp.id} style={{
-              background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10,
-              padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center",
+              background: "#fff", border: `1px solid ${LINE}`, borderRadius: 12,
+              padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+              borderLeft: `4px solid ${meta ? meta.color : LINE}`,
             }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
                   {insp.model} · {insp.partType} {insp.serialNo && `· SN: ${insp.serialNo}`}
                 </div>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 3 }}>
+                  {[
+                    insp.values?.diameter != null && `Ø ${insp.values.diameter}`,
+                    insp.values?.thickness != null && `หนา ${insp.values.thickness}`,
+                    insp.gainAverage?.count ? `Gain ${insp.gainAverage.count} จุด` : null,
+                  ].filter(Boolean).join(" · ")}
+                </div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                  {insp.inspectedBy}
+                  👤 {insp.inspectedBy}{insp.createdAt ? ` · 🕒 ${formatDateTime(insp.createdAt)}` : ""}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -869,8 +955,32 @@ function InspectTab({ standards, inspections, currentUser }) {
   );
 }
 
-function isMobileGrid() {
-  return typeof window !== "undefined" && window.innerWidth < 500 ? "1fr" : "1fr 1fr 1fr";
+/* ---------------- LAYOUT HELPERS ---------------- */
+
+function Card({ children, dim }) {
+  return (
+    <div style={{
+      background: "#fff", border: `1px solid ${LINE}`, borderRadius: 14, padding: 16,
+      marginBottom: 14, boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+      opacity: dim ? 0.6 : 1, transition: "opacity .2s",
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function SectionTitle({ step, title, hint }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <span style={{
+        width: 22, height: 22, borderRadius: 999, background: PRIMARY, color: "#fff",
+        fontSize: 12, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>{step}</span>
+      <span style={{ fontSize: 14, fontWeight: 800, color: INK }}>{title}</span>
+      {hint && <span style={{ fontSize: 11, color: "#94a3b8" }}>· {hint}</span>}
+    </div>
+  );
 }
 
 /* ---------------- SHARED UI HELPERS ---------------- */
@@ -894,8 +1004,8 @@ const FormField = forwardRef(function FormField(
         onFocus={onFocus}
         onChange={e => onChange(e.target.value)}
         style={{
-          width: "100%", border: "1px solid #e2e8f0", borderRadius: 8,
-          padding: "9px 10px", fontSize: 13, fontFamily: "inherit",
+          width: "100%", border: `1px solid ${LINE}`, borderRadius: 8,
+          padding: "10px 11px", fontSize: 14, fontFamily: "inherit", color: INK,
           boxSizing: "border-box", background: disabled ? "#f8fafc" : "#fff",
         }}
       />
@@ -923,5 +1033,5 @@ const modalOverlayStyle = {
 
 const modalStyle = {
   background: "#fff", borderRadius: "16px 16px 0 0", padding: 20,
-  width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto",
+  width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", boxSizing: "border-box",
 };
