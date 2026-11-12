@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 
 /*
  * Railway wheel profile chart (MiniProf-style), all in mm.
@@ -249,6 +249,12 @@ export function diagnosePlain({ points, standardPoints, plain }) {
 
 /* ------------------------------ chart ------------------------------ */
 
+const zoomBtnStyle = {
+  width: 26, height: 26, borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff",
+  color: "#334155", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+  display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0,
+};
+
 function niceTicks(min, max, count = 8) {
   if (min === max) { min -= 1; max += 1; }
   const raw = (max - min) / count;
@@ -269,6 +275,13 @@ const STATUS = {
 export default function RailProfileChart({ standardPoints, points, rail, variant = "rail", plain }) {
   const [hover, setHover] = useState(null);
   const [exaggerate, setExaggerate] = useState(false);
+  // zoom: z = 1..20 (both axes together, so true scale stays true); cx/cy = view centre in mm
+  const [view, setView] = useState({ z: 1, cx: null, cy: null });
+  useEffect(() => { setView({ z: 1, cx: null, cy: null }); }, [exaggerate]);
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const svgRef = useRef(null);
+  const geomRef = useRef(null);
+  const dragRef = useRef(null);
   const isPlain = variant === "plain";
   // plain wheels: no flange/boundary/limit points
   const r = isPlain ? { ...railSettings(null), boundaryX: -Infinity, limits: [] } : railSettings(rail);
@@ -287,22 +300,76 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const yMin = Math.min(...ys), yMax = Math.max(...ys);
   const padX = (xMax - xMin) * 0.03 || 1;
-  const X0 = xMin - padX, X1 = xMax + padX;
+  const BX0 = xMin - padX, BX1 = xMax + padX;
   // "True scale": 1 mm on Y looks like 1 mm on X (as on a real cross-section), so a
   // nearly-flat tread looks flat. "Exaggerate" stretches Y to fill the plot to see small wear.
-  let Y0, Y1;
+  let BY0, BY1;
   const dataSpanY = (yMax - yMin) || 1;
   if (exaggerate) {
     const padY = dataSpanY * 0.1;
-    Y0 = yMin - padY; Y1 = yMax + padY;
+    BY0 = yMin - padY; BY1 = yMax + padY;
   } else {
-    const trueSpanY = (X1 - X0) * (plotH / plotW);           // same mm-per-pixel as X
+    const trueSpanY = (BX1 - BX0) * (plotH / plotW);         // same mm-per-pixel as X
     const spanY = Math.max(trueSpanY, dataSpanY * 1.15);
     const mid = (yMin + yMax) / 2;
     // keep the profile in the upper part of the plot, with room below for the wheel body
-    Y1 = Math.max(yMax + dataSpanY * 0.08 + 0.5, mid + spanY / 2);
-    Y0 = Y1 - spanY;
+    BY1 = Math.max(yMax + dataSpanY * 0.08 + 0.5, mid + spanY / 2);
+    BY0 = BY1 - spanY;
   }
+  // visible window after zoom/pan, clamped inside the full view
+  const z = view.z;
+  const hw = (BX1 - BX0) / 2 / z, hh = (BY1 - BY0) / 2 / z;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const cx = clamp(view.cx ?? (BX0 + BX1) / 2, BX0 + hw, BX1 - hw);
+  const cy = clamp(view.cy ?? (BY0 + BY1) / 2, BY0 + hh, BY1 - hh);
+  const X0 = cx - hw, X1 = cx + hw, Y0 = cy - hh, Y1 = cy + hh;
+  geomRef.current = { BX0, BX1, BY0, BY1, X0, X1, Y0, Y1, z };
+
+  const toSvg = (e) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    return { sx: ((e.clientX - rect.left) / rect.width) * size, sy: ((e.clientY - rect.top) / rect.height) * height };
+  };
+  const zoomAt = (factor, sx, sy) => {
+    const g = geomRef.current;
+    const nz = clamp(g.z * factor, 1, 20);
+    const fx = clamp((sx - ml) / plotW, 0, 1), fy = clamp((sy - mt) / plotH, 0, 1);
+    const dx = g.X0 + fx * (g.X1 - g.X0), dy = g.Y1 - fy * (g.Y1 - g.Y0);
+    const nhw = (g.BX1 - g.BX0) / 2 / nz, nhh = (g.BY1 - g.BY0) / 2 / nz;
+    setView({ z: nz, cx: dx - (fx - 0.5) * 2 * nhw, cy: dy + (fy - 0.5) * 2 * nhh });
+  };
+  const zoomBtn = f => zoomAt(f, ml + plotW / 2, mt + plotH / 2);
+  const resetView = () => setView({ z: 1, cx: null, cy: null });
+
+  // wheel zoom needs a non-passive listener to stop the page from scrolling
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const { sx, sy } = toSvg(e);
+      zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, sx, sy);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const onPointerDown = (e) => {
+    if (geomRef.current.z <= 1 || e.target.closest?.("circle")) return;
+    svgRef.current.setPointerCapture?.(e.pointerId);
+    const { sx, sy } = toSvg(e);
+    dragRef.current = { sx, sy, cx, cy, w: X1 - X0, h: Y1 - Y0 };
+  };
+  const onPointerMove = (e) => {
+    const d0 = dragRef.current;
+    if (!d0) return;
+    const { sx, sy } = toSvg(e);
+    setView(v => ({ ...v, cx: d0.cx - ((sx - d0.sx) / plotW) * d0.w, cy: d0.cy + ((sy - d0.sy) / plotH) * d0.h }));
+  };
+  const onPointerUp = (e) => {
+    dragRef.current = null;
+    svgRef.current?.releasePointerCapture?.(e.pointerId);
+  };
   const px = x => ml + ((x - X0) / (X1 - X0)) * plotW;
   const py = y => mt + (1 - (y - Y0) / (Y1 - Y0)) * plotH;
   const path = poly => poly.map((p, i) => `${i ? "L" : "M"}${px(p.x).toFixed(2)},${py(p.y).toFixed(2)}`).join(" ");
@@ -335,7 +402,15 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
         แกน X / Y เป็น mm · เส้นประ = มาตรฐาน (ล้อใหม่) · เส้นทึบ = ที่วัดได้ · วัดแล้ว {M.length} จุด
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -30, marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, marginTop: -30, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: z > 1 ? "#2563EB" : "#cbd5e1", minWidth: 36, textAlign: "right" }}>
+          {Math.round(z * 100)}%
+        </span>
+        <button type="button" title="ซูมออก" disabled={z <= 1} onClick={() => zoomBtn(1 / 1.4)} style={{ ...zoomBtnStyle, opacity: z <= 1 ? 0.4 : 1 }}>−</button>
+        <button type="button" title="ซูมเข้า" disabled={z >= 20} onClick={() => zoomBtn(1.4)} style={{ ...zoomBtnStyle, opacity: z >= 20 ? 0.4 : 1 }}>+</button>
+        <button type="button" title="กลับสู่มุมมองเต็ม" disabled={z <= 1} onClick={resetView}
+          style={{ ...zoomBtnStyle, width: "auto", padding: "0 8px", fontSize: 11,
+            ...(z <= 1 ? { opacity: 0.4 } : { background: "#2563EB", color: "#fff", borderColor: "#2563EB" }) }}>รีเซ็ต</button>
         <div style={{ display: "inline-flex", padding: 3, gap: 3, background: "#f1f5f9", borderRadius: 8, border: "1px solid #e2e8f0" }}>
           {[[false, "สัดส่วนจริง"], [true, "ขยายความต่าง"]].map(([v, label]) => (
             <button key={label} type="button" onClick={() => setExaggerate(v)} style={{
@@ -379,10 +454,12 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
         ))}
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${size} ${height}`}
-        style={{ display: "block", height: "auto", aspectRatio: `${size} / ${height}`, background: "#fcfdff", borderRadius: 8 }}>
+      <svg ref={svgRef} width="100%" viewBox={`0 0 ${size} ${height}`}
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
+        style={{ display: "block", height: "auto", aspectRatio: `${size} / ${height}`, background: "#fcfdff", borderRadius: 8,
+          cursor: z > 1 ? "grab" : "default", touchAction: z > 1 ? "none" : "pan-y", userSelect: "none" }}>
         <defs>
-          <clipPath id="rail-clip"><rect x={ml} y={mt} width={plotW} height={plotH} /></clipPath>
+          <clipPath id={`${uid}-clip`}><rect x={ml} y={mt} width={plotW} height={plotH} /></clipPath>
         </defs>
 
         {/* grid */}
@@ -412,7 +489,7 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
           </g>
         )}
 
-        <g clipPath="url(#rail-clip)">
+        <g clipPath={`url(#${uid}-clip)`}>
           {/* worn area on the tread (between standard and measured) */}
           {M.length >= 2 && S.length >= 2 && (() => {
             const a = Math.max(M[0].x, S[0].x), b = Math.min(M[M.length - 1].x, S[S.length - 1].x);
@@ -444,6 +521,7 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
           })}
         </g>
 
+        <g clipPath={`url(#${uid}-clip)`}>
         {/* limit points */}
         {r.limits.map((l, i) => {
           const lim = d.limits[i];
@@ -549,6 +627,7 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
           );
         })()}
 
+        </g>
         {/* hover readout */}
         {hover !== null && M[hover] && (
           <text x={px(M[hover].x)} y={py(M[hover].y) - 10} fontSize="11" fontWeight="700" fill="#1E3A8A"
