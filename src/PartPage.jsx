@@ -1076,7 +1076,17 @@ function InspectTab({ standards, inspections, currentUser }) {
             </div>
           </div>
 
-          {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null) && (
+          {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null)
+            && !trimmedGain.some(p => p.y !== "") && (
+            <div style={{
+              border: `1px dashed ${LINE}`, borderRadius: 12, padding: "36px 16px", textAlign: "center",
+              color: "#94a3b8", fontSize: 13, background: "#fcfdff",
+            }}>
+              📈 ยังไม่มีค่าที่วัด — เริ่มวัดหรือวางค่า แล้วกราฟจะแสดงที่นี่
+            </div>
+          )}
+          {selected && (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null)
+            && trimmedGain.some(p => p.y !== "") && (
             <div style={{ position: stackGain ? "static" : "sticky", top: 110 }}>
               <GainAngleChart
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
