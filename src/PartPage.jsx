@@ -228,12 +228,16 @@ const emptyStandardForm = {
   modelUrl: "",
 };
 const emptyGainPoints = (n = 10) => Array.from({ length: n }, () => ({ x: "", y: "" }));
-// Gain X = point number (position from the left edge); set only when Y has a value
-const gainPointAt = (i, y) => {
-  const yy = y === null || y === undefined ? "" : String(y);
-  return { x: yy === "" ? "" : String(i + 1), y: yy };
-};
+const strOrEmpty = v => (v === null || v === undefined ? "" : String(v));
+// Gain X is entered by the user; if left blank (but Y is filled) it defaults to the point number.
+const effGain = (points) => points.map((p, i) => ({
+  x: p.x !== "" ? p.x : (p.y !== "" ? String(i + 1) : ""),
+  y: p.y,
+}));
+const resizeGain = (prev, n) => Array.from({ length: n }, (_, i) => prev[i] || { x: "", y: "" });
 const GAIN_POINT_OPTIONS = [10, 15, 20];
+const INSPECT_POINT_OPTIONS = [5, 10, 15, 20];
+const MIN_POINTS = 3, MAX_POINTS = 40;
 
 function StandardsTab({ standards, canManage, currentUser }) {
   const [showForm, setShowForm] = useState(false);
@@ -243,14 +247,13 @@ function StandardsTab({ standards, canManage, currentUser }) {
   const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
   const [saving, setSaving] = useState(false);
 
-  // Only Gain Y is entered; Gain X is just the point's position (#1..#N), filled automatically.
-  const updateGainPoint = (idx, val) => {
-    setGainPoints(prev => prev.map((p, i) => (i === idx ? gainPointAt(i, val) : p)));
+  const updateGainPoint = (idx, axis, val) => {
+    setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
   };
 
   const changePointCount = (n) => {
     setPointCount(n);
-    setGainPoints(prev => Array.from({ length: n }, (_, i) => prev[i] || { x: "", y: "" }));
+    setGainPoints(prev => resizeGain(prev, n));
   };
 
   const openNew = () => {
@@ -272,17 +275,16 @@ function StandardsTab({ standards, canManage, currentUser }) {
       modelUrl: s.modelUrl || "",
     });
     if (Array.isArray(s.specs?.gainPoints) && s.specs.gainPoints.length > 0) {
-      const count = GAIN_POINT_OPTIONS.includes(s.specs.gainPoints.length) ? s.specs.gainPoints.length : 10;
-      const pts = emptyGainPoints(count);
-      s.specs.gainPoints.forEach((p, i) => {
-        if (i < count) pts[i] = gainPointAt(i, p?.y);
-      });
+      const count = s.specs.gainPoints.length;
+      const pts = s.specs.gainPoints.map(p => ({ x: strOrEmpty(p?.x), y: strOrEmpty(p?.y) }));
       setPointCount(count);
       setGainPoints(pts);
     } else {
       // backward compat with the old single gainX/gainY format
       const pts = emptyGainPoints(10);
-      if (s.specs?.gainY != null) pts[0] = gainPointAt(0, s.specs.gainY);
+      if (s.specs?.gainX != null || s.specs?.gainY != null) {
+        pts[0] = { x: strOrEmpty(s.specs.gainX), y: strOrEmpty(s.specs.gainY) };
+      }
       setPointCount(10);
       setGainPoints(pts);
     }
@@ -302,14 +304,15 @@ function StandardsTab({ standards, canManage, currentUser }) {
       return;
     }
     setSaving(true);
-    const gainAvg = computeAveragePoint(gainPoints);
+    const filledGain = effGain(gainPoints);
+    const gainAvg = computeAveragePoint(filledGain);
     const payload = {
       model: form.model.trim(),
       partType: form.partType.trim(),
       specs: {
         diameter: toNum(form.diameter) ?? 0,
         thickness: toNum(form.thickness) ?? 0,
-        gainPoints: gainPoints.map(p => ({
+        gainPoints: filledGain.map(p => ({
           x: toNum(p.x),
           y: toNum(p.y),
         })),
@@ -403,8 +406,17 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
             {(s.specs?.gainAverage?.x != null || s.specs?.gainAverage?.y != null) && (
               <div style={{
-                display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8, marginTop: 8,
+                display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 8,
               }}>
+                <div style={{
+                  background: "#f8fafc", border: `1px solid ${LINE}`,
+                  borderRadius: 8, padding: "6px 8px", textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 10, color: MUTED, fontWeight: 600 }}>Gain X (เฉลี่ย)</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: "#334155" }}>
+                    {s.specs.gainAverage.x != null ? s.specs.gainAverage.x.toFixed(2) : "—"}
+                  </div>
+                </div>
                 <div style={{
                   background: "#f8fafc", border: `1px solid ${LINE}`,
                   borderRadius: 8, padding: "6px 8px", textAlign: "center",
@@ -454,10 +466,11 @@ function StandardsTab({ standards, canManage, currentUser }) {
             </div>
 
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>
-              Gain Y รายจุด (โปรไฟล์หน้ายาง) — ไม่บังคับ
+              Gain X / Gain Y รายจุด (โปรไฟล์หน้ายาง) — ไม่บังคับ
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
-              กรอกค่า Gain Y เรียงจากขอบซ้าย (#1) ไปขอบขวา — ลำดับจุดคือตำแหน่ง ไม่ต้องกรอก X
+              กรอกเรียงจากขอบซ้าย (#1) ไปขอบขวา · ถ้าเว้น X ว่างไว้ ระบบใช้เลขลำดับจุดแทน
+              · ตอนตรวจเลือกจำนวนจุดต่างจากนี้ได้ ระบบเทียบตามตำแหน่งบนหน้ายางให้
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -480,8 +493,16 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 10, color: "#94a3b8", width: 20, flexShrink: 0 }}>#{i + 1}</span>
                   <input
-                    type="number" placeholder="Gain Y" value={p.y}
-                    onChange={e => updateGainPoint(i, e.target.value)}
+                    type="number" placeholder={`X (${i + 1})`} value={p.x}
+                    onChange={e => updateGainPoint(i, "x", e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
+                      padding: "4px 6px", fontSize: 11, fontFamily: "inherit", boxSizing: "border-box",
+                    }}
+                  />
+                  <input
+                    type="number" placeholder="Y" value={p.y}
+                    onChange={e => updateGainPoint(i, "y", e.target.value)}
                     style={{
                       flex: 1, minWidth: 0, border: "1px solid #e2e8f0", borderRadius: 6,
                       padding: "4px 6px", fontSize: 11, fontFamily: "inherit", boxSizing: "border-box",
@@ -537,6 +558,7 @@ function targetKey(t) {
 function buildTargetList(gainCount) {
   const targets = FIELDS.map(f => ({ kind: "field", key: f.key }));
   for (let i = 0; i < gainCount; i++) {
+    targets.push({ kind: "gain", idx: i, axis: "x" });
     targets.push({ kind: "gain", idx: i, axis: "y" });
   }
   return targets;
@@ -558,14 +580,25 @@ function InspectTab({ standards, inspections, currentUser }) {
   const narrow = vw < 500;
 
   const selected = standards.find(s => s.id === selectedId);
-  const requiredGainCount = selected?.specs?.gainPoints?.length || 10;
+  const filledGain = useMemo(() => effGain(gainPoints), [gainPoints]);
+  // Default point count = the standard's count (or 10); the inspector can change it freely.
+  const defaultGainCount = selected?.specs?.gainPoints?.length || 10;
+  const stdGainCount = selected?.specs?.gainPoints?.length || 0;
+  const [customCount, setCustomCount] = useState("");
+  const changeInspectCount = (n) => {
+    n = Math.max(MIN_POINTS, Math.min(MAX_POINTS, Math.round(n)));
+    if (!Number.isFinite(n) || n === gainPoints.length) return;
+    const lost = gainPoints.slice(n).some(p => p.x !== "" || p.y !== "");
+    if (lost && !confirm(`ลดเหลือ ${n} จุด — ค่าที่กรอกไว้ในจุด #${n + 1} ขึ้นไปจะถูกลบ ยืนยัน?`)) return;
+    setGainPoints(prev => resizeGain(prev, n));
+  };
 
   const targetList = useMemo(() => buildTargetList(gainPoints.length), [gainPoints.length]);
 
   // Reset the gain point table to match whatever point-count the selected model's
   // standard was defined with, whenever the selected model changes.
   useEffect(() => {
-    setGainPoints(emptyGainPoints(requiredGainCount));
+    setGainPoints(emptyGainPoints(defaultGainCount));
     setActiveTargetKey(`field:${FIELDS[0].key}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -597,12 +630,12 @@ function InspectTab({ standards, inspections, currentUser }) {
     if (!selected) return { level: null, findings: [], worn: [], bulge: [] };
     const sp = selected.specs?.gainPoints || [];
     return diagnoseProfile({
-      points: gainPoints,
-      standardPoints: sp.filter(p => p?.y != null).length >= 2 ? sp : null,
+      points: filledGain,
+      standardPoints: sp,
       standardY: selected.specs?.gainAverage?.y,
       thresholds: selected.thresholds,
     });
-  }, [selected, gainPoints]);
+  }, [selected, filledGain]);
 
   // Final result = the worst of: size (diameter/thickness), Gain profile, surface condition
   const RANK = { ok: 0, warning: 1, critical: 2 };
@@ -631,7 +664,7 @@ function InspectTab({ standards, inspections, currentUser }) {
     ? resultParts.reduce((w, p) => (RANK[p.status] > RANK[w] ? p.status : w), "ok")
     : null;
 
-  const gainAverage = useMemo(() => computeAveragePoint(gainPoints), [gainPoints]);
+  const gainAverage = useMemo(() => computeAveragePoint(filledGain), [filledGain]);
 
   const angleInfo = useMemo(
     () => computeAngleInfo(
@@ -641,9 +674,8 @@ function InspectTab({ standards, inspections, currentUser }) {
     [selected, gainAverage.avgX, gainAverage.avgY]
   );
 
-  // Only Gain Y is entered; Gain X is just the point's position (#1..#N), filled automatically.
-  const updateGainPoint = (idx, val) => {
-    setGainPoints(prev => prev.map((p, i) => (i === idx ? gainPointAt(i, val) : p)));
+  const updateGainPoint = (idx, axis, val) => {
+    setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
   };
 
   const anyGainEntered = gainPoints.some(p => p.x !== "" || p.y !== "");
@@ -651,14 +683,14 @@ function InspectTab({ standards, inspections, currentUser }) {
     if (!anyGainEntered) return;
     if (!confirm("ล้างค่า Gain X / Y ที่กรอกไว้ทั้งหมด?")) return;
     setGainPoints(emptyGainPoints(gainPoints.length));
-    setActiveTargetKey(`gain:0:y`);
-    requestAnimationFrame(() => gainRefs.current["0-y"]?.focus());
+    setActiveTargetKey(`gain:0:x`);
+    requestAnimationFrame(() => gainRefs.current["0-x"]?.focus());
   };
 
   const resetForm = () => {
     setSerialNo("");
     setValues({ diameter: "", thickness: "" });
-    setGainPoints(emptyGainPoints(requiredGainCount));
+    setGainPoints(emptyGainPoints(gainPoints.length));
     setActiveTargetKey(`field:${FIELDS[0].key}`);
     setCondition(emptyCondition);
     setConditionNote("");
@@ -675,7 +707,7 @@ function InspectTab({ standards, inspections, currentUser }) {
     if (current.kind === "field") {
       setValues(prev => ({ ...prev, [current.key]: String(num) }));
     } else {
-      setGainPoints(prev => prev.map((p, i) => (i === current.idx ? gainPointAt(i, String(num)) : p)));
+      setGainPoints(prev => prev.map((p, i) => (i === current.idx ? { ...p, [current.axis]: String(num) } : p)));
     }
 
     const nextIdx = ((currentIdx >= 0 ? currentIdx : 0) + 1) % targetList.length;
@@ -710,10 +742,11 @@ function InspectTab({ standards, inspections, currentUser }) {
         },
         results: liveResults,
         overallStatus,
-        gainPoints: gainPoints.map(p => ({
+        gainPoints: filledGain.map(p => ({
           x: toNum(p.x),
           y: toNum(p.y),
         })),
+        pointCount: gainPoints.length,
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
         gainDiagnosis: gainDiag.level
@@ -807,7 +840,7 @@ function InspectTab({ standards, inspections, currentUser }) {
       </Card>
 
       <Card dim={!selected}>
-        <SectionTitle step={3} title={`Gain Y — ${gainPoints.length} จุด (ขอบซ้าย → ขวา)`} right={
+        <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด (ขอบซ้าย → ขวา)`} right={
           <button type="button" onClick={clearGain} disabled={!anyGainEntered} style={{
             background: anyGainEntered ? "#fef2f2" : "#f8fafc",
             color: anyGainEntered ? "#dc2626" : "#cbd5e1",
@@ -816,9 +849,43 @@ function InspectTab({ standards, inspections, currentUser }) {
             cursor: anyGainEntered ? "pointer" : "default",
           }}>🗑 ล้างค่า Gain</button>
         } />
+        {/* point count picker — free choice, independent of the standard */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>จำนวนจุดที่วัด:</span>
+          {INSPECT_POINT_OPTIONS.map(n => {
+            const on = gainPoints.length === n;
+            return (
+              <button key={n} type="button" disabled={!selected} onClick={() => changeInspectCount(n)} style={{
+                padding: "4px 12px", borderRadius: 6,
+                border: on ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
+                background: on ? PRIMARY_LIGHT : "#fff", color: on ? PRIMARY : "#475569",
+                fontSize: 12, fontWeight: 700, cursor: selected ? "pointer" : "default", fontFamily: "inherit",
+              }}>{n}</button>
+            );
+          })}
+          <input
+            type="number" min={MIN_POINTS} max={MAX_POINTS} placeholder="อื่นๆ"
+            value={customCount} disabled={!selected}
+            onChange={e => setCustomCount(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && customCount) { changeInspectCount(+customCount); setCustomCount(""); } }}
+            onBlur={() => { if (customCount) { changeInspectCount(+customCount); setCustomCount(""); } }}
+            style={{
+              width: 64, border: `1px solid ${LINE}`, borderRadius: 6, padding: "4px 6px",
+              fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
+            }}
+          />
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>จุด</span>
+          {stdGainCount > 0 && stdGainCount !== gainPoints.length && (
+            <span style={{
+              fontSize: 11, color: "#1E3A8A", background: PRIMARY_LIGHT, border: `1px solid ${PRIMARY_BORDER}`,
+              borderRadius: 999, padding: "2px 8px",
+            }}>
+              มาตรฐานรุ่นนี้มี {stdGainCount} จุด — ระบบเทียบตามตำแหน่งบนหน้ายางให้อัตโนมัติ
+            </span>
+          )}
+        </div>
         <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
-          กรอกค่า Gain Y เรียงจากขอบซ้าย (#1) ไปขอบขวา · ไม่ต้องครบทุกจุดก็คำนวณได้
-          {selected?.specs?.gainPoints?.length ? " · จำนวนจุดตั้งไว้ตามค่ามาตรฐานของรุ่นนี้" : ""}
+          กรอกเรียงจากขอบซ้าย (#1) ไปขอบขวา · ถ้าเว้น X ว่างไว้ ระบบใช้เลขลำดับจุดแทน · ไม่ต้องครบทุกจุดก็คำนวณได้
           {" · "}คลิกเลือกช่องแล้วใช้คาลิปเปอร์ยิงค่าเข้าได้เลย (เลื่อนไปช่องถัดไปให้อัตโนมัติ)
         </div>
         <style>{`
@@ -828,7 +895,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         `}</style>
         <div style={{
           display: "grid",
-          gridTemplateColumns: stackGain ? "1fr" : "150px minmax(0, 1fr)",
+          gridTemplateColumns: stackGain ? "1fr" : "200px minmax(0, 1fr)",
           gap: 16, alignItems: "start",
         }}>
           <div>
@@ -837,18 +904,33 @@ function InspectTab({ standards, inspections, currentUser }) {
               gap: "3px", paddingRight: 4,
             }}>
               {gainPoints.map((p, i) => {
+                const isActiveX = activeTargetKey === `gain:${i}:x`;
                 const isActiveY = activeTargetKey === `gain:${i}:y`;
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                     <span style={{ fontSize: 9, color: "#94a3b8", width: 14, flexShrink: 0 }}>#{i + 1}</span>
                     <input
                       className="gxy-input"
+                      ref={el => (gainRefs.current[`${i}-x`] = el)}
+                      type="number" placeholder={`X (${i + 1})`} value={p.x} disabled={!selected}
+                      onChange={e => updateGainPoint(i, "x", e.target.value)}
+                      onFocus={() => setActiveTargetKey(`gain:${i}:x`)}
+                      style={{
+                        flex: 1, minWidth: 0, maxWidth: 80, borderRadius: 5,
+                        border: isActiveX ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
+                        boxShadow: isActiveX ? `0 0 0 2px ${PRIMARY_BORDER}` : "none",
+                        padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
+                        background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
+                      }}
+                    />
+                    <input
+                      className="gxy-input"
                       ref={el => (gainRefs.current[`${i}-y`] = el)}
-                      type="number" placeholder="Gain Y" value={p.y} disabled={!selected}
-                      onChange={e => updateGainPoint(i, e.target.value)}
+                      type="number" placeholder="Y" value={p.y} disabled={!selected}
+                      onChange={e => updateGainPoint(i, "y", e.target.value)}
                       onFocus={() => setActiveTargetKey(`gain:${i}:y`)}
                       style={{
-                        flex: 1, minWidth: 0, maxWidth: 110, borderRadius: 5,
+                        flex: 1, minWidth: 0, maxWidth: 80, borderRadius: 5,
                         border: isActiveY ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
                         boxShadow: isActiveY ? `0 0 0 2px ${PRIMARY_BORDER}` : "none",
                         padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
@@ -866,7 +948,7 @@ function InspectTab({ standards, inspections, currentUser }) {
               <GainAngleChart
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
                 standardPoints={selected.specs?.gainPoints}
-                points={gainPoints} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
+                points={filledGain} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
                 thresholds={selected.thresholds}
               />
             </div>
