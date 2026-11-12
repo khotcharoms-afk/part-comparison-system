@@ -389,11 +389,17 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   // flat line, so a standard that was entered as a real tire-like profile
   // actually reads as one on the chart.
   const hasStandardCurve = model.curve;
-  // Standard sampled finely across its range (point order #1…#N, or X in mm)
-  const [s0, s1] = model.stdRange;
-  const stdSamples = hasStandardCurve
+  // The standard is drawn ONLY over the range that was actually measured
+  // (first → last measured point that has a standard to compare with) —
+  // no "example" standard shape where nothing was measured.
+  const comparable = validSeries.filter(p => model.refAt(p.i) !== null && model.refAt(p.i) !== undefined);
+  const mPos = comparable.map(p => p.pos);
+  const m0 = mPos.length ? Math.max(model.stdRange[0], Math.min(...mPos)) : null;
+  const m1 = mPos.length ? Math.min(model.stdRange[1], Math.max(...mPos)) : null;
+  const hasStdSpan = m0 !== null && m1 > m0;
+  const stdSamples = hasStandardCurve && hasStdSpan
     ? Array.from({ length: 121 }, (_, k) => {
-        const c = s0 + (k / 120) * (s1 - s0);
+        const c = m0 + (k / 120) * (m1 - m0);
         return { pos: c, yVal: model.stdAt(c) };
       })
     : [];
@@ -435,7 +441,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   // Tolerance band around the standard (per point index across the whole axis)
   const bandRefs = (hasStandardCurve
     ? stdSamples.map(s => ({ pos: s.pos, ref: s.yVal }))
-    : hasStandardY ? [{ pos: model.axis[0], ref: sy }, { pos: model.axis[1], ref: sy }] : []
+    : hasStandardY && hasStdSpan ? [{ pos: m0, ref: sy }, { pos: m1, ref: sy }] : []
   ).filter(b => b.ref !== null && b.ref !== 0);
   const bandAt = (pct, sign) => bandRefs.map(b => ({ pos: b.pos, y: b.ref + sign * Math.abs(b.ref) * pct / 100 }));
 
@@ -560,8 +566,8 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const plotTop = margin, plotBottom = height - margin;
   const stdOutlinePts = hasStandardCurve
     ? stdLinePoints
-    : (stdPy !== null && totalPoints >= 1
-        ? [toPx(model.axis[0], sy), toPx(model.axis[1], sy)]
+    : (stdPy !== null && hasStdSpan
+        ? [toPx(m0, sy), toPx(m1, sy)]
         : []);
   const stdOutline = hasStandardCurve ? stdSmoothPathStr
     : stdOutlinePts.length === 2 ? `M${stdOutlinePts[0].px},${stdOutlinePts[0].py} L${stdOutlinePts[1].px},${stdOutlinePts[1].py}` : "";
@@ -852,7 +858,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           on a fixed scale with the ±warning / ±critical limits. This is how QC
           reports usually show a profile check: easy to read even when the raw
           values are far apart in scale. Shares the X axis (and zoom/pan) above. */}
-      {bandRefs.length > 0 && validSeries.length > 0 && (() => {
+      {comparable.length > 0 && (() => {
         const devH = 190, top = 22, bottom = 30;
         const pH = devH - top - bottom;
         const signed = validSeries.map((p, i) => {
