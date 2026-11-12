@@ -773,6 +773,14 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
             <path d={measUnderPath} fill="#FBBF24" opacity="0.5" clipPath={`url(#${uid}-stdAbove)`} />
           )}
 
+          {/* critical limit — lower side only (standard − critical%), dashed red */}
+          {bandRefs.length >= 2 && (
+            <path
+              d={bandAt(critPct, -1).map((b, k) => { const q = toPx(b.pos, b.y); return `${k ? "L" : "M"}${q.px.toFixed(2)},${q.py.toFixed(2)}`; }).join(" ")}
+              fill="none" stroke="#DC2626" strokeWidth="1.6" strokeDasharray="7 5" opacity="0.85"
+            />
+          )}
+
           {/* standard outline */}
           {stdOutline && (
             <path d={stdOutline} fill="none" stroke="#475569" strokeWidth="2.4"
@@ -1026,6 +1034,15 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               ส่วนที่นูน (สูงกว่ามาตรฐาน)
             </div>
           </div>
+          {bandRefs.length >= 2 && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#991B1B" }}>
+                <span style={{ width: 16, height: 0, borderTop: "2px dashed #DC2626", flexShrink: 0 }} />
+                ขีดวิกฤต −{critPct}%
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>ต่ำกว่าเส้นนี้ = ควรเปลี่ยน</div>
+            </div>
+          )}
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: "#92400E" }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: "#D97706", flexShrink: 0 }} />
