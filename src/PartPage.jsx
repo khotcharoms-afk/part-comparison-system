@@ -249,6 +249,7 @@ const effGain = (points) => points.map((p, i) => ({
 const resizeGain = (prev, n) => Array.from({ length: n }, (_, i) => prev[i] || { x: "", y: "" });
 const GAIN_POINT_OPTIONS = [10, 15, 20];
 const MIN_POINTS = 3, MAX_POINTS = 200;
+const LIST_SCROLL_AT = 12; // more rows than this → the Gain list gets its own scroll box
 
 function StandardsTab({ standards, canManage, currentUser }) {
   const [showForm, setShowForm] = useState(false);
@@ -710,6 +711,14 @@ function InspectTab({ standards, inspections, currentUser }) {
   };
   const [appendDraft, setAppendDraft] = useState("");
   const appendRef = useRef(null);
+  const listRef = useRef(null);
+  // when a point is added, keep the newest row in view inside the scroll box
+  const prevCountRef = useRef(0);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el && gainPoints.length > prevCountRef.current) el.scrollTop = el.scrollHeight;
+    prevCountRef.current = gainPoints.length;
+  }, [gainPoints.length]);
   const [activeTargetKey, setActiveTargetKey] = useState(`field:${FIELDS[0].key}`);
   const fieldRefs = useRef({});
   const gainRefs = useRef({});
@@ -1115,6 +1124,10 @@ function InspectTab({ standards, inspections, currentUser }) {
         <style>{`
           .gxy-input::-webkit-outer-spin-button,
           .gxy-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+          .gain-list { scrollbar-width: thin; scrollbar-color: #93C5FD #f1f5f9; }
+          .gain-list::-webkit-scrollbar { width: 8px; }
+          .gain-list::-webkit-scrollbar-thumb { background: #93C5FD; border-radius: 8px; }
+          .gain-list::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
           .gxy-input { -moz-appearance: textfield; }
         `}</style>
         <div style={{
@@ -1127,6 +1140,23 @@ function InspectTab({ standards, inspections, currentUser }) {
               display: "grid", gridTemplateColumns: "1fr",
               gap: "3px", paddingRight: 4,
             }}>
+              {gainPoints.length > LIST_SCROLL_AT && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "#64748b", marginBottom: 2 }}>
+                  <span>{gainPoints.length} จุด · เลื่อนในกล่องนี้</span>
+                  <button type="button" onClick={() => listRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+                    style={{ ...toolBtn(false), padding: "1px 7px", fontSize: 10.5, marginLeft: "auto" }}>⤒ บนสุด</button>
+                  <button type="button" onClick={() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" })}
+                    style={{ ...toolBtn(false), padding: "1px 7px", fontSize: 10.5 }}>⤓ ล่างสุด</button>
+                </div>
+              )}
+              {/* own scroll box for long point lists (rail profiles can have 50–200 points) */}
+              <div ref={listRef} className="gain-list" style={{
+                display: "grid", gridTemplateColumns: "1fr", gap: "3px",
+                ...(gainPoints.length > LIST_SCROLL_AT ? {
+                  maxHeight: "min(58vh, 520px)", overflowY: "auto", overscrollBehavior: "contain",
+                  border: `1px solid ${LINE}`, borderRadius: 8, padding: "4px 4px 4px 2px", background: "#fcfdff",
+                } : {}),
+              }}>
               {gainPoints.map((p, i) => {
                 const isActiveX = activeTargetKey === `gain:${i}:x`;
                 const isActiveY = activeTargetKey === `gain:${i}:y`;
@@ -1166,6 +1196,7 @@ function InspectTab({ standards, inspections, currentUser }) {
                   </div>
                 );
               })}
+              </div>
 
               {/* append slot — the next value (caliper or typed + Enter) becomes a new point */}
               {(() => {
