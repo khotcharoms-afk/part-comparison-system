@@ -71,7 +71,7 @@ function calcDiff(measured, standard) {
 
 function statusFromDiff(diff, thresholds) {
   if (diff === null) return null;
-  const warning = thresholds?.warning ?? 5;
+  const warning = thresholds?.warning ?? 3;
   const critical = thresholds?.critical ?? 10;
   if (diff > critical) return "critical";
   if (diff >= warning) return "warning";
@@ -224,7 +224,7 @@ function TabButton({ active, onClick, children }) {
 const emptyStandardForm = {
   model: "", partType: "",
   diameter: "", thickness: "",
-  warning: 5, critical: 10,
+  warning: 3, critical: 10,
   modelUrl: "",
 };
 const emptyGainPoints = (n = 10) => Array.from({ length: n }, () => ({ x: "", y: "" }));
@@ -272,7 +272,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
       partType: s.partType || "",
       diameter: s.specs?.diameter ?? "",
       thickness: s.specs?.thickness ?? "",
-      warning: s.thresholds?.warning ?? 5,
+      warning: s.thresholds?.warning ?? 3,
       critical: s.thresholds?.critical ?? 10,
       modelUrl: s.modelUrl || "",
     });
@@ -299,7 +299,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
       alert("กรุณากรอกรุ่นและประเภทอะไหล่");
       return;
     }
-    const warn = toNum(form.warning) ?? 5;
+    const warn = toNum(form.warning) ?? 3;
     const crit = toNum(form.critical) ?? 10;
     if (warn >= crit) {
       alert("เกณฑ์ ⚠️ เตือน ต้องน้อยกว่า 🔴 วิกฤต");

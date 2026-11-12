@@ -245,7 +245,7 @@ export function makeProfileModel({ points, standardPoints, standardY }) {
  * Returns { level: "ok"|"warning"|"critical"|null, verdict, findings: [{tone, text}] }.
  */
 export function diagnoseProfile({ points, standardPoints, standardY, thresholds }) {
-  const warn = Number(thresholds?.warning) || 5;
+  const warn = Number(thresholds?.warning) || 3;
   const crit = Number(thresholds?.critical) || 10;
   const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
   const n = (points || []).length;
@@ -360,7 +360,7 @@ const POINT_STATUS = {
 export default function GainAngleChart({ standardX, standardY, standardPoints, points, avgX, avgY, count, thresholds }) {
   // Average Gain X is only comparable when both use the same set of points
   const sameCount = !standardPoints?.length || standardPoints.length === (points?.length || 0);
-  const warnPct = Number(thresholds?.warning) || 5;
+  const warnPct = Number(thresholds?.warning) || 3;
   const critPct = Number(thresholds?.critical) || 10;
   const [activeIdx, setActiveIdx] = useState(null); // point whose label is shown on hover/tap
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
