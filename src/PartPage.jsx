@@ -236,8 +236,7 @@ const effGain = (points) => points.map((p, i) => ({
 }));
 const resizeGain = (prev, n) => Array.from({ length: n }, (_, i) => prev[i] || { x: "", y: "" });
 const GAIN_POINT_OPTIONS = [10, 15, 20];
-const INSPECT_POINT_OPTIONS = [5, 10, 15, 20];
-const MIN_POINTS = 3, MAX_POINTS = 40;
+const MIN_POINTS = 3, MAX_POINTS = 60;
 
 function StandardsTab({ standards, canManage, currentUser }) {
   const [showForm, setShowForm] = useState(false);
@@ -572,24 +571,40 @@ function StandardsTab({ standards, canManage, currentUser }) {
 
 /* ---------------- INSPECT TAB ---------------- */
 
+// Input sequence for the caliper / Enter key:
+//   diameter → thickness → existing Gain cells → "append" slot (each value adds a new point)
+const APPEND_KEY = "gain:append";
 function targetKey(t) {
-  return t.kind === "field" ? `field:${t.key}` : `gain:${t.idx}:${t.axis}`;
+  if (t.kind === "field") return `field:${t.key}`;
+  if (t.kind === "append") return APPEND_KEY;
+  return `gain:${t.idx}:${t.axis}`;
 }
-function buildTargetList(gainCount) {
+function buildTargetList(gainCount, mode) {
   const targets = FIELDS.map(f => ({ kind: "field", key: f.key }));
   for (let i = 0; i < gainCount; i++) {
-    targets.push({ kind: "gain", idx: i, axis: "x" });
+    if (mode === "xy") targets.push({ kind: "gain", idx: i, axis: "x" });
     targets.push({ kind: "gain", idx: i, axis: "y" });
   }
+  targets.push({ kind: "append" });
   return targets;
 }
+const loadEntryMode = () => {
+  try { return localStorage.getItem("pcs_gain_mode") === "xy" ? "xy" : "y"; } catch { return "y"; }
+};
 
 function InspectTab({ standards, inspections, currentUser }) {
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [values, setValues] = useState({ diameter: "", thickness: "" });
-  const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
+  const [gainPoints, setGainPoints] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [entryMode, setEntryModeState] = useState(loadEntryMode); // "y" = one value per point, "xy" = X then Y
+  const setEntryMode = (m) => {
+    setEntryModeState(m);
+    try { localStorage.setItem("pcs_gain_mode", m); } catch { /* ignore */ }
+  };
+  const [appendDraft, setAppendDraft] = useState("");
+  const appendRef = useRef(null);
   const [activeTargetKey, setActiveTargetKey] = useState(`field:${FIELDS[0].key}`);
   const fieldRefs = useRef({});
   const gainRefs = useRef({});
@@ -600,26 +615,21 @@ function InspectTab({ standards, inspections, currentUser }) {
   const narrow = vw < 500;
 
   const selected = standards.find(s => s.id === selectedId);
-  const filledGain = useMemo(() => effGain(gainPoints), [gainPoints]);
-  // Default point count = the standard's count (or 10); the inspector can change it freely.
-  const defaultGainCount = selected?.specs?.gainPoints?.length || 10;
+  // Ignore empty rows at the end (e.g. a row added with "+ เพิ่มจุด" but not filled yet)
+  const filledGain = useMemo(() => {
+    let n = gainPoints.length;
+    while (n > 0 && gainPoints[n - 1].x === "" && gainPoints[n - 1].y === "") n--;
+    return effGain(gainPoints.slice(0, n));
+  }, [gainPoints]);
   const stdGainCount = selected?.specs?.gainPoints?.length || 0;
-  const [customCount, setCustomCount] = useState("");
   const [importOpen, setImportOpen] = useState(false);
-  const changeInspectCount = (n) => {
-    n = Math.max(MIN_POINTS, Math.min(MAX_POINTS, Math.round(n)));
-    if (!Number.isFinite(n) || n === gainPoints.length) return;
-    const lost = gainPoints.slice(n).some(p => p.x !== "" || p.y !== "");
-    if (lost && !confirm(`ลดเหลือ ${n} จุด — ค่าที่กรอกไว้ในจุด #${n + 1} ขึ้นไปจะถูกลบ ยืนยัน?`)) return;
-    setGainPoints(prev => resizeGain(prev, n));
-  };
 
-  const targetList = useMemo(() => buildTargetList(gainPoints.length), [gainPoints.length]);
+  const targetList = useMemo(() => buildTargetList(gainPoints.length, entryMode), [gainPoints.length, entryMode]);
 
-  // Reset the gain point table to match whatever point-count the selected model's
-  // standard was defined with, whenever the selected model changes.
+  // New model → start with an empty Gain table; points are added as they're measured.
   useEffect(() => {
-    setGainPoints(emptyGainPoints(defaultGainCount));
+    setGainPoints([]);
+    setAppendDraft("");
     setActiveTargetKey(`field:${FIELDS[0].key}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -700,45 +710,83 @@ function InspectTab({ standards, inspections, currentUser }) {
   };
 
   const anyGainEntered = gainPoints.some(p => p.x !== "" || p.y !== "");
+
+  const focusTarget = (t) => {
+    if (!t) return;
+    setActiveTargetKey(targetKey(t));
+    requestAnimationFrame(() => {
+      if (t.kind === "field") fieldRefs.current[t.key]?.focus();
+      else if (t.kind === "append") appendRef.current?.focus();
+      else gainRefs.current[`${t.idx}-${t.axis}`]?.focus();
+    });
+  };
+  // Move from a target to the next one (no wrap-around; the end is the append slot)
+  const advanceFrom = (key) => {
+    const i = targetList.findIndex(t => targetKey(t) === key);
+    focusTarget(targetList[Math.min((i >= 0 ? i : 0) + 1, targetList.length - 1)]);
+  };
+
+  // A value for a NEW point (from the caliper, or typed in the append slot + Enter)
+  const appendValue = (raw) => {
+    const v = String(raw).trim();
+    if (v === "" || !Number.isFinite(parseFloat(v))) return;
+    if (gainPoints.length >= MAX_POINTS) { alert(`วัดได้สูงสุด ${MAX_POINTS} จุด`); return; }
+    const idx = gainPoints.length;
+    if (entryMode === "xy") {
+      setGainPoints(prev => [...prev, { x: v, y: "" }]);
+      focusTarget({ kind: "gain", idx, axis: "y" });
+    } else {
+      setGainPoints(prev => [...prev, { x: "", y: v }]);
+      focusTarget({ kind: "append" });
+    }
+  };
+  const addEmptyPoint = () => {
+    if (gainPoints.length >= MAX_POINTS) return;
+    const idx = gainPoints.length;
+    setGainPoints(prev => [...prev, { x: "", y: "" }]);
+    focusTarget({ kind: "gain", idx, axis: entryMode === "xy" ? "x" : "y" });
+  };
+  const removeLastPoint = () => {
+    if (gainPoints.length === 0) return;
+    setGainPoints(prev => prev.slice(0, -1));
+    focusTarget({ kind: "append" });
+  };
   const clearGain = () => {
-    if (!anyGainEntered) return;
-    if (!confirm("ล้างค่า Gain X / Y ที่กรอกไว้ทั้งหมด?")) return;
-    setGainPoints(emptyGainPoints(gainPoints.length));
-    setActiveTargetKey(`gain:0:x`);
-    requestAnimationFrame(() => gainRefs.current["0-x"]?.focus());
+    if (!anyGainEntered && gainPoints.length === 0) return;
+    if (anyGainEntered && !confirm("ล้างค่า Gain ทั้งหมด?")) return;
+    setGainPoints([]);
+    setAppendDraft("");
+    focusTarget({ kind: "append" });
+  };
+  const onEnterAdvance = (key) => (e) => {
+    if (e.key === "Enter") { e.preventDefault(); advanceFrom(key); }
   };
 
   const resetForm = () => {
     setSerialNo("");
     setValues({ diameter: "", thickness: "" });
-    setGainPoints(emptyGainPoints(gainPoints.length));
+    setGainPoints([]);
+    setAppendDraft("");
     setActiveTargetKey(`field:${FIELDS[0].key}`);
     setCondition(emptyCondition);
     setConditionNote("");
   };
 
-  // Caliper values fill whichever field/cell is currently active — diameter, thickness,
-  // or any Gain X/Y cell — then auto-advance to the next one in sequence.
+  // Caliper values fill whichever field/cell is active, then move on. When the
+  // append slot is active (the default once the existing cells are done), every
+  // value adds a new Gain point — so the number of points is whatever was measured.
   const handleCaliperValue = (num) => {
     if (!selected) return;
-    const currentIdx = targetList.findIndex(t => targetKey(t) === activeTargetKey);
-    const current = currentIdx >= 0 ? targetList[currentIdx] : targetList[0];
+    const i = targetList.findIndex(t => targetKey(t) === activeTargetKey);
+    const current = i >= 0 ? targetList[i] : targetList[0];
     if (!current) return;
-
+    if (current.kind === "append") { appendValue(num); return; }
     if (current.kind === "field") {
       setValues(prev => ({ ...prev, [current.key]: String(num) }));
     } else {
-      setGainPoints(prev => prev.map((p, i) => (i === current.idx ? { ...p, [current.axis]: String(num) } : p)));
+      setGainPoints(prev => prev.map((p, k) => (k === current.idx ? { ...p, [current.axis]: String(num) } : p)));
     }
-
-    const nextIdx = ((currentIdx >= 0 ? currentIdx : 0) + 1) % targetList.length;
-    const next = targetList[nextIdx];
-    const nextKey = targetKey(next);
-    setActiveTargetKey(nextKey);
-    requestAnimationFrame(() => {
-      if (next.kind === "field") fieldRefs.current[next.key]?.focus();
-      else gainRefs.current[`${next.idx}-${next.axis}`]?.focus();
-    });
+    advanceFrom(targetKey(current));
   };
 
   const handleSubmit = async () => {
@@ -767,7 +815,7 @@ function InspectTab({ standards, inspections, currentUser }) {
           x: toNum(p.x),
           y: toNum(p.y),
         })),
-        pointCount: gainPoints.length,
+        pointCount: filledGain.length,
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
         gainDiagnosis: gainDiag.level
@@ -843,6 +891,7 @@ function InspectTab({ standards, inspections, currentUser }) {
                   label={f.label} type="number" value={values[f.key]}
                   onChange={v => setValues({ ...values, [f.key]: v })}
                   onFocus={() => setActiveTargetKey(`field:${f.key}`)}
+                  onKeyDown={onEnterAdvance(`field:${f.key}`)}
                   disabled={!selected}
                 />
                 {meta && (
@@ -861,7 +910,7 @@ function InspectTab({ standards, inspections, currentUser }) {
       </Card>
 
       <Card dim={!selected}>
-        <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด (ขอบซ้าย → ขวา)`} right={
+        <SectionTitle step={3} title={`Gain — วัดแล้ว ${filledGain.length} จุด (ขอบซ้าย → ขวา)`} right={
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {!importOpen && (
             <button type="button" disabled={!selected} onClick={() => setImportOpen(true)} style={{
@@ -884,47 +933,39 @@ function InspectTab({ standards, inspections, currentUser }) {
           <GainImportPanel
             hasValues={anyGainEntered}
             onClose={() => setImportOpen(false)}
-            onImport={pts => { setGainPoints(pts); setImportOpen(false); }}
+            onImport={pts => { setGainPoints(pts); setImportOpen(false); focusTarget({ kind: "append" }); }}
           />
         )}
-        {/* point count picker — free choice, independent of the standard */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          <span style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>จำนวนจุดที่วัด:</span>
-          {INSPECT_POINT_OPTIONS.map(n => {
-            const on = gainPoints.length === n;
-            return (
-              <button key={n} type="button" disabled={!selected} onClick={() => changeInspectCount(n)} style={{
-                padding: "4px 12px", borderRadius: 6,
-                border: on ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
-                background: on ? PRIMARY_LIGHT : "#fff", color: on ? PRIMARY : "#475569",
-                fontSize: 12, fontWeight: 700, cursor: selected ? "pointer" : "default", fontFamily: "inherit",
-              }}>{n}</button>
-            );
-          })}
-          <input
-            type="number" min={MIN_POINTS} max={MAX_POINTS} placeholder="อื่นๆ"
-            value={customCount} disabled={!selected}
-            onChange={e => setCustomCount(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && customCount) { changeInspectCount(+customCount); setCustomCount(""); } }}
-            onBlur={() => { if (customCount) { changeInspectCount(+customCount); setCustomCount(""); } }}
-            style={{
-              width: 64, border: `1px solid ${LINE}`, borderRadius: 6, padding: "4px 6px",
-              fontSize: 12, fontFamily: "inherit", boxSizing: "border-box",
-            }}
-          />
-          <span style={{ fontSize: 11, color: "#94a3b8" }}>จุด</span>
-          {stdGainCount > 0 && stdGainCount !== gainPoints.length && (
+        {/* entry mode + point tools — the number of points is however many get measured */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>ค่าที่ยิงต่อ 1 จุด:</span>
+          <div style={{ display: "inline-flex", padding: 3, gap: 3, background: "#f1f5f9", borderRadius: 8, border: `1px solid ${LINE}` }}>
+            {[["y", "Y อย่างเดียว"], ["xy", "X แล้ว Y"]].map(([m, label]) => (
+              <button key={m} type="button" disabled={!selected} onClick={() => setEntryMode(m)} style={{
+                border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, fontWeight: 700,
+                fontFamily: "inherit", cursor: selected ? "pointer" : "default",
+                background: entryMode === m ? "#fff" : "transparent",
+                color: entryMode === m ? PRIMARY : MUTED,
+                boxShadow: entryMode === m ? "0 1px 2px rgba(15,23,42,0.12)" : "none",
+              }}>{label}</button>
+            ))}
+          </div>
+          <button type="button" disabled={!selected || gainPoints.length >= MAX_POINTS} onClick={addEmptyPoint} style={toolBtn(!selected)}>＋ เพิ่มจุด</button>
+          <button type="button" disabled={!selected || gainPoints.length === 0} onClick={removeLastPoint}
+            style={toolBtn(!selected || gainPoints.length === 0)}>↶ ลบจุดสุดท้าย</button>
+          {stdGainCount > 0 && (
             <span style={{
               fontSize: 11, color: "#1E3A8A", background: PRIMARY_LIGHT, border: `1px solid ${PRIMARY_BORDER}`,
               borderRadius: 999, padding: "2px 8px",
             }}>
-              มาตรฐานรุ่นนี้มี {stdGainCount} จุด — ระบบเทียบตามตำแหน่งบนหน้ายางให้อัตโนมัติ
+              มาตรฐานรุ่นนี้ {stdGainCount} จุด · วัดกี่จุดก็ได้ ระบบเทียบตามตำแหน่งให้
             </span>
           )}
         </div>
-        <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
-          กรอกเรียงจากขอบซ้าย (#1) ไปขอบขวา · ถ้าเว้น X ว่างไว้ ระบบใช้เลขลำดับจุดแทน · ไม่ต้องครบทุกจุดก็คำนวณได้
-          {" · "}คลิกเลือกช่องแล้วใช้คาลิปเปอร์ยิงค่าเข้าได้เลย (เลื่อนไปช่องถัดไปให้อัตโนมัติ)
+        <div style={{ fontSize: 10.5, color: "#94a3b8", marginBottom: 8 }}>
+          วัดเรียงจากขอบซ้ายไปขอบขวา · กดส่งค่าจากเครื่องมือ 1 ครั้ง = เพิ่ม 1 จุด
+          {entryMode === "xy" ? " (ยิง X แล้วตามด้วย Y)" : " (X ใช้เลขลำดับจุด)"}
+          {" · "}พิมพ์เองก็ได้ กด Enter เพื่อไปช่อง/จุดถัดไป · คลิกช่องเดิมเพื่อแก้ค่าได้
         </div>
         <style>{`
           .gxy-input::-webkit-outer-spin-button,
@@ -947,12 +988,13 @@ function InspectTab({ standards, inspections, currentUser }) {
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                     <span style={{ fontSize: 9, color: "#94a3b8", width: 14, flexShrink: 0 }}>#{i + 1}</span>
-                    <input
+                    {entryMode === "xy" && <input
                       className="gxy-input"
                       ref={el => (gainRefs.current[`${i}-x`] = el)}
                       type="number" placeholder={`X (${i + 1})`} value={p.x} disabled={!selected}
                       onChange={e => updateGainPoint(i, "x", e.target.value)}
                       onFocus={() => setActiveTargetKey(`gain:${i}:x`)}
+                      onKeyDown={onEnterAdvance(`gain:${i}:x`)}
                       style={{
                         flex: 1, minWidth: 0, maxWidth: 80, borderRadius: 5,
                         border: isActiveX ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
@@ -960,15 +1002,16 @@ function InspectTab({ standards, inspections, currentUser }) {
                         padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
                         background: !selected ? "#f8fafc" : "#fff", boxSizing: "border-box",
                       }}
-                    />
+                    />}
                     <input
                       className="gxy-input"
                       ref={el => (gainRefs.current[`${i}-y`] = el)}
                       type="number" placeholder="Y" value={p.y} disabled={!selected}
                       onChange={e => updateGainPoint(i, "y", e.target.value)}
                       onFocus={() => setActiveTargetKey(`gain:${i}:y`)}
+                      onKeyDown={onEnterAdvance(`gain:${i}:y`)}
                       style={{
-                        flex: 1, minWidth: 0, maxWidth: 80, borderRadius: 5,
+                        flex: 1, minWidth: 0, maxWidth: entryMode === "xy" ? 80 : 140, borderRadius: 5,
                         border: isActiveY ? `1px solid ${PRIMARY}` : `1px solid ${LINE}`,
                         boxShadow: isActiveY ? `0 0 0 2px ${PRIMARY_BORDER}` : "none",
                         padding: "3px 4px", fontSize: 10.5, fontFamily: "inherit",
@@ -978,6 +1021,46 @@ function InspectTab({ standards, inspections, currentUser }) {
                   </div>
                 );
               })}
+
+              {/* append slot — the next value (caliper or typed + Enter) becomes a new point */}
+              {(() => {
+                const on = activeTargetKey === APPEND_KEY;
+                const full = gainPoints.length >= MAX_POINTS;
+                return (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 3, marginTop: 4, boxSizing: "border-box", maxWidth: "100%",
+                    border: `1px dashed ${on ? PRIMARY : "#cbd5e1"}`, borderRadius: 7,
+                    padding: "4px 4px", background: on ? PRIMARY_LIGHT : "#fff",
+                  }}>
+                    <span style={{ fontSize: 9, color: on ? PRIMARY : "#94a3b8", width: 14, flexShrink: 0, fontWeight: 700 }}>
+                      #{gainPoints.length + 1}
+                    </span>
+                    <input
+                      ref={appendRef}
+                      className="gxy-input"
+                      type="number" value={appendDraft} disabled={!selected || full}
+                      placeholder={full ? `ครบ ${MAX_POINTS} จุด` : on ? "รอค่า… / พิมพ์+Enter" : "คลิกเพื่อเพิ่มจุด"}
+                      onChange={e => setAppendDraft(e.target.value)}
+                      onFocus={() => setActiveTargetKey(APPEND_KEY)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { e.preventDefault(); appendValue(appendDraft); setAppendDraft(""); }
+                      }}
+                      style={{
+                        flex: 1, minWidth: 0, width: 0, border: "none", outline: "none", background: "transparent",
+                        fontSize: 11, fontFamily: "inherit", padding: "3px 2px",
+                      }}
+                    />
+                    <span style={{ fontSize: 10, color: on ? PRIMARY : "#cbd5e1", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {entryMode === "xy" ? "X ใหม่" : "Y ใหม่"}
+                    </span>
+                  </div>
+                );
+              })()}
+              {gainPoints.length === 0 && selected && (
+                <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 4, lineHeight: 1.5 }}>
+                  ยังไม่มีจุด — คลิกช่องประบนนี้ แล้วกดส่งค่าจากเครื่องมือได้เลย หรือใช้ 📋 วางค่า
+                </div>
+              )}
             </div>
           </div>
 
@@ -1235,6 +1318,12 @@ function GainImportPanel({ hasValues, onImport, onClose }) {
 
 /* ---------------- LAYOUT HELPERS ---------------- */
 
+const toolBtn = (disabled) => ({
+  background: "#fff", color: disabled ? "#cbd5e1" : "#334155",
+  border: `1px solid ${LINE}`, borderRadius: 7, padding: "4px 10px",
+  fontSize: 11.5, fontWeight: 700, fontFamily: "inherit", cursor: disabled ? "default" : "pointer",
+});
+
 function Card({ children, dim }) {
   return (
     <div style={{
@@ -1269,7 +1358,7 @@ function FormLabel({ children }) {
 }
 
 const FormField = forwardRef(function FormField(
-  { label, value, onChange, type = "text", placeholder, disabled, onFocus }, ref
+  { label, value, onChange, type = "text", placeholder, disabled, onFocus, onKeyDown }, ref
 ) {
   return (
     <div>
@@ -1281,6 +1370,7 @@ const FormField = forwardRef(function FormField(
         placeholder={placeholder}
         disabled={disabled}
         onFocus={onFocus}
+        onKeyDown={onKeyDown}
         onChange={e => onChange(e.target.value)}
         style={{
           width: "100%", border: `1px solid ${LINE}`, borderRadius: 8,
