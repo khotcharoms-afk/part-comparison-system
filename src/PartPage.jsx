@@ -737,6 +737,7 @@ const loadEntryMode = () => {
 };
 
 function InspectTab({ standards, inspections, currentUser }) {
+  const [viewing, setViewing] = useState(null);   // inspection record shown in the detail view
   const [selectedId, setSelectedId] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [values, setValues] = useState({ diameter: "", thickness: "" });
@@ -995,6 +996,15 @@ function InspectTab({ standards, inspections, currentUser }) {
         model: selected.model,
         partType: selected.partType,
         standardId: selected.id,
+        // copy of the standard as it was at inspection time, so the detail view
+        // can redraw this record even if the standard is edited later
+        standardSnapshot: {
+          profileMode: selected.profileMode || "gain",
+          specs: selected.specs || null,
+          thresholds: selected.thresholds || null,
+          rail: selected.rail ?? null,
+          plain: selected.plain ?? null,
+        },
         serialNo: serialNo.trim(),
         values: {
           diameter: toNum(values.diameter),
@@ -1444,7 +1454,12 @@ function InspectTab({ standards, inspections, currentUser }) {
 
       <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: "20px 0 10px" }}>
         ประวัติการตรวจวัดล่าสุด
+        <span style={{ fontSize: 11, fontWeight: 500, color: "#94a3b8" }}> · กดรายการเพื่อดูรายละเอียด</span>
       </div>
+      <style>{`.insp-row:hover { background: #f8fafc !important; box-shadow: 0 1px 4px rgba(15,23,42,0.08); }`}</style>
+      {viewing && (
+        <InspectionDetail insp={viewing} standards={standards} onClose={() => setViewing(null)} />
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {inspections.length === 0 && (
           <div style={{ textAlign: "center", color: "#94a3b8", padding: 20, fontSize: 13 }}>
@@ -1457,10 +1472,15 @@ function InspectTab({ standards, inspections, currentUser }) {
           const condMeta = insp.conditionStatus && insp.conditionStatus !== "ok"
             ? STATUS_META[insp.conditionStatus] : null;
           return (
-            <div key={insp.id} style={{
+            <div key={insp.id} role="button" tabIndex={0}
+              onClick={() => setViewing(insp)}
+              onKeyDown={e => { if (e.key === "Enter") setViewing(insp); }}
+              title="กดเพื่อดูรายละเอียด"
+              className="insp-row"
+              style={{
               background: "#fff", border: `1px solid ${LINE}`, borderRadius: 12,
               padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
-              borderLeft: `4px solid ${meta ? meta.color : LINE}`,
+              borderLeft: `4px solid ${meta ? meta.color : LINE}`, cursor: "pointer",
             }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
@@ -1570,6 +1590,156 @@ function GainImportPanel({ hasValues, onImport, onClose }) {
             borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 800,
             cursor: !parsed || parsed.error ? "default" : "pointer", fontFamily: "inherit",
           }}>นำเข้า</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- INSPECTION DETAIL ---------------- */
+
+function InspectionDetail({ insp, standards, onClose }) {
+  useEffect(() => {
+    const onKey = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // standard used for this record: the snapshot saved with it, else the current one
+  const current = standards.find(s => s.id === insp.standardId)
+    || standards.find(s => s.model === insp.model && s.partType === insp.partType);
+  const std = insp.standardSnapshot || current || null;
+  const fromSnapshot = !!insp.standardSnapshot;
+  const mode = insp.profileMode || std?.profileMode || "gain";
+  const pts = (insp.gainPoints || []).map(p => ({
+    x: p?.x === null || p?.x === undefined ? "" : String(p.x),
+    y: p?.y === null || p?.y === undefined ? "" : String(p.y),
+  })).filter(p => p.y !== "");
+  const st = insp.finalStatus || insp.overallStatus;
+  const meta = st ? STATUS_META[st] : null;
+  const checked = CONDITION_ITEMS.filter(c => insp.condition?.[c.key]);
+  const PART_LABEL = { size: "ขนาด (เส้นผ่านศูนย์กลาง/ความหนา)", gain: "โปรไฟล์หน้ายาง (Gain Y)",
+    rail: "โปรไฟล์ล้อ (Tread / Flange)", plain: "โปรไฟล์หน้าล้อ (mm)", surface: "สภาพผิว" };
+  const box = { background: "#fff", border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 12 };
+  const h = { fontSize: 13, fontWeight: 800, color: INK, marginBottom: 8 };
+
+  return (
+    <div style={{ ...modalOverlayStyle, alignItems: "center", padding: 12 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        ...modalStyle, borderRadius: 16, maxWidth: 980, maxHeight: "92vh", background: "#f8fafc",
+      }}>
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: INK }}>
+              {insp.model} <span style={{ color: "#94a3b8", fontWeight: 500 }}>· {insp.partType}</span>
+            </div>
+            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
+              {insp.serialNo ? `SN: ${insp.serialNo} · ` : ""}👤 {insp.inspectedBy}
+              {insp.createdAt ? ` · 🕒 ${formatDateTime(insp.createdAt)}` : ""}
+              {mode === "rail" ? " · 🚆 ล้อรถไฟ" : mode === "plain" ? " · 🛞 ล้อทั่วไป" : ""}
+            </div>
+          </div>
+          {meta && (
+            <div style={{
+              marginLeft: "auto", fontSize: 14, fontWeight: 800, color: meta.color, background: meta.bg,
+              border: `1px solid ${meta.border}`, borderRadius: 10, padding: "6px 12px", whiteSpace: "nowrap",
+            }}>{meta.icon} {meta.label}</div>
+          )}
+          <button onClick={onClose} title="ปิด (Esc)" style={{
+            marginLeft: meta ? 0 : "auto", background: "#fff", border: `1px solid ${LINE}`, borderRadius: 8,
+            width: 34, height: 34, fontSize: 16, cursor: "pointer", flexShrink: 0,
+          }}>✕</button>
+        </div>
+
+        {/* combined result */}
+        {Array.isArray(insp.finalParts) && insp.finalParts.length > 0 && (
+          <div style={box}>
+            <div style={h}>ผลรวม (ใช้ผลที่แย่ที่สุดจากทุกส่วน)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {insp.finalParts.map((p, i) => {
+                const m = STATUS_META[p.status] || STATUS_META.ok;
+                return (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 12.5,
+                    background: m.bg, border: `1px solid ${m.border}`, borderRadius: 8, padding: "6px 10px" }}>
+                    <span style={{ fontWeight: 800, color: m.color, whiteSpace: "nowrap" }}>{m.icon} {m.label}</span>
+                    <span style={{ fontWeight: 700, color: INK }}>{PART_LABEL[p.part] || p.part}</span>
+                    <span style={{ color: MUTED }}>— {p.detail}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* size values */}
+        {FIELDS.some(f => insp.values?.[f.key] != null) && (
+          <div style={box}>
+            <div style={h}>ค่าที่วัดได้</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+              {FIELDS.map(f => {
+                const v = insp.values?.[f.key];
+                if (v == null) return null;
+                const r = insp.results?.[f.key];
+                const m = r?.status ? STATUS_META[r.status] : null;
+                return (
+                  <div key={f.key} style={{ background: m ? m.bg : "#f8fafc", border: `1px solid ${m ? m.border : LINE}`, borderRadius: 10, padding: "8px 12px" }}>
+                    <div style={{ fontSize: 11, color: MUTED }}>{f.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: INK }}>{v}</div>
+                    <div style={{ fontSize: 11, color: MUTED }}>
+                      มาตรฐาน {std?.specs?.[f.key] ?? "—"}
+                      {r?.diff != null ? ` · เบี่ยง ${r.diff.toFixed(1)}%` : ""}{m ? ` · ${m.icon} ${m.label}` : ""}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* profile chart */}
+        {pts.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            {!std ? (
+              <div style={box}>ไม่พบค่ามาตรฐานของรายการนี้ (อาจถูกลบไปแล้ว) — แสดงกราฟไม่ได้ · วัดไว้ {pts.length} จุด</div>
+            ) : mode === "gain" ? (
+              <GainAngleChart
+                standardX={std.specs?.gainAverage?.x} standardY={std.specs?.gainAverage?.y}
+                standardPoints={std.specs?.gainPoints} points={pts}
+                avgX={insp.gainAverage?.x ?? null} avgY={insp.gainAverage?.y ?? null} count={insp.gainAverage?.count ?? pts.length}
+                thresholds={std.thresholds}
+              />
+            ) : (
+              <RailProfileChart standardPoints={std.specs?.gainPoints} points={pts}
+                rail={std.rail} plain={std.plain} variant={mode === "plain" ? "plain" : "rail"} />
+            )}
+            {std && !fromSnapshot && (
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
+                * รายการนี้บันทึกก่อนมีการเก็บสำเนาค่ามาตรฐาน — กราฟเทียบกับค่ามาตรฐานปัจจุบันของรุ่นนี้
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* surface condition */}
+        <div style={box}>
+          <div style={h}>สภาพผิวหน้ายาง</div>
+          {checked.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "#16a34a" }}>✅ ไม่พบความผิดปกติ</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {checked.map(c => {
+                const m = STATUS_META[c.severity];
+                return (
+                  <span key={c.key} style={{ fontSize: 12, fontWeight: 700, color: m.color, background: m.bg,
+                    border: `1px solid ${m.border}`, borderRadius: 999, padding: "3px 10px" }}>{m.icon} {c.label}</span>
+                );
+              })}
+            </div>
+          )}
+          {insp.conditionNote && (
+            <div style={{ fontSize: 12.5, color: "#334155", marginTop: 8 }}>📝 {insp.conditionNote}</div>
+          )}
         </div>
       </div>
     </div>
