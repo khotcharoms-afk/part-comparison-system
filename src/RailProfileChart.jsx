@@ -163,6 +163,90 @@ export function diagnoseRail({ points, standardPoints, rail }) {
   };
 }
 
+/* ---------------------- ordinary (plain) wheel ---------------------- */
+
+export const DEFAULT_PLAIN = { wearWarn: 1, wearCrit: 2 };
+export function plainSettings(plain) {
+  const r = { ...DEFAULT_PLAIN, ...(plain || {}) };
+  r.wearWarn = num(r.wearWarn) ?? DEFAULT_PLAIN.wearWarn;
+  r.wearCrit = num(r.wearCrit) ?? DEFAULT_PLAIN.wearCrit;
+  return r;
+}
+
+/**
+ * Ordinary wheel (no flange): vertical wear in mm at every measured X across the tread.
+ * Returns { level, verdict, findings, maxWear:{x,loss}, avgWear, maxBulge:{x,bulge}, coverage }
+ */
+export function diagnosePlain({ points, standardPoints, plain }) {
+  const r = plainSettings(plain);
+  const S = toPolyline(standardPoints);
+  const M = toPolyline(points);
+  const empty = { level: null, verdict: "", findings: [], maxWear: null, avgWear: null, maxBulge: null, settings: r };
+  if (S.length < 2 || M.length < 1) return empty;
+  const x0 = S[0].x, x1 = S[S.length - 1].x;
+  const rows = M.map(p => { const sy = yAt(S, p.x); return sy === null ? null : { x: p.x, loss: sy - p.y }; }).filter(Boolean);
+  if (!rows.length) {
+    return { ...empty, findings: [{ tone: "info", text: `จุดที่วัดอยู่นอกช่วงโปรไฟล์มาตรฐาน (X ${x0}–${x1} mm)` }] };
+  }
+  const zoneOf = x => { const t = (x - x0) / ((x1 - x0) || 1); return t < 1 / 3 ? "left" : t > 2 / 3 ? "right" : "center"; };
+  const ZONE = { left: "ขอบซ้าย", center: "กลางหน้าล้อ", right: "ขอบขวา" };
+  const fx = v => +v.toFixed(2);
+
+  const maxWear = rows.reduce((a, b) => (b.loss > a.loss ? b : a));
+  const minRow = rows.reduce((a, b) => (b.loss < a.loss ? b : a));
+  const maxBulge = minRow.loss < 0 ? { x: minRow.x, bulge: -minRow.loss } : null;
+  const avgWear = rows.reduce((s, q) => s + q.loss, 0) / rows.length;
+
+  const wearLevel = levelOf(Math.max(0, maxWear.loss), r.wearWarn, r.wearCrit);
+  const bulgeLevel = maxBulge ? levelOf(maxBulge.bulge, r.wearWarn, r.wearCrit) : "ok";
+
+  const findings = [];
+  const toneOf = l => (l === "critical" ? "bad" : l === "warning" ? "warn" : "ok");
+  const worn = rows.filter(q => q.loss >= r.wearWarn);
+  if (!worn.length) {
+    findings.push({ tone: "ok", text: `ไม่พบจุดสึกเกินเกณฑ์ (สึกมากสุด ${f2(Math.max(0, maxWear.loss))} mm ที่ X = ${fx(maxWear.x)} mm)` });
+  } else {
+    const zones = [...new Set(worn.map(q => zoneOf(q.x)))];
+    const has = z => zones.includes(z);
+    const where = zones.length === 1 ? `สึกที่${ZONE[zones[0]]}`
+      : has("left") && has("right") && !has("center") ? "สึกที่ขอบทั้งสองข้าง"
+      : zones.length === 3 ? "สึกหลายช่วงทั่วหน้าล้อ"
+      : has("left") ? "สึกจากขอบซ้ายเข้ามาถึงกลางหน้าล้อ" : "สึกจากกลางหน้าล้อไปทางขอบขวา";
+    const a = Math.min(...worn.map(q => q.x)), b = Math.max(...worn.map(q => q.x));
+    findings.push({
+      tone: toneOf(wearLevel),
+      text: `${where} ช่วง X ${fx(a)}–${fx(b)} mm · สึกมากสุด ${f2(maxWear.loss)} mm ที่ X = ${fx(maxWear.x)} mm (เตือน ${r.wearWarn} · วิกฤต ${r.wearCrit} mm)`,
+    });
+  }
+  if (maxBulge && maxBulge.bulge >= r.wearWarn) {
+    findings.push({ tone: toneOf(bulgeLevel), text: `พบผิวนูนสูงกว่ามาตรฐาน ${f2(maxBulge.bulge)} mm ที่ X = ${fx(maxBulge.x)} mm — ควรตรวจด้วยตาว่ามีรอยบวมหรือสิ่งแปลกปลอม` });
+  } else {
+    findings.push({ tone: "ok", text: "ไม่พบผิวนูนเกินเกณฑ์" });
+  }
+  // left vs right balance
+  const side = z => rows.filter(q => zoneOf(q.x) === z);
+  const L = side("left"), Rr = side("right");
+  let imbalance = false;
+  if (L.length && Rr.length) {
+    const avg = a => a.reduce((s, q) => s + q.loss, 0) / a.length;
+    const dLR = avg(L) - avg(Rr);
+    if (Math.abs(dLR) >= r.wearWarn) {
+      imbalance = true;
+      findings.push({ tone: "warn", text: `สองฝั่งสึกไม่เท่ากัน — ฝั่ง${dLR > 0 ? "ซ้าย" : "ขวา"}สึกมากกว่าประมาณ ${f2(Math.abs(dLR))} mm อาจเกิดจากล้อเอียงหรือรับน้ำหนักไม่เท่ากัน` });
+    }
+  }
+  findings.push({ tone: "info", text: `สึกเฉลี่ยทั้งหน้าล้อ ${f2(avgWear)} mm (เทียบได้ ${rows.length} จุด)` });
+  const mx0 = M[0].x, mx1 = M[M.length - 1].x;
+  if ((Math.min(mx1, x1) - Math.max(mx0, x0)) < (x1 - x0) * 0.9) {
+    findings.push({ tone: "info", text: `วัดครอบคลุม X ${fx(Math.max(mx0, x0))}–${fx(Math.min(mx1, x1))} mm จากหน้าล้อ ${fx(x0)}–${fx(x1)} mm` });
+  }
+  const levels = [wearLevel, bulgeLevel, imbalance ? "warning" : null].filter(Boolean);
+  const level = levels.reduce((w, l) => (LEVEL_RANK[l] > LEVEL_RANK[w] ? l : w), "ok");
+  const verdict = level === "critical" ? "🔴 เกินเกณฑ์ — ควรเปลี่ยนล้อหรือตรวจสอบละเอียด"
+    : level === "warning" ? "⚠️ เริ่มสึก — ติดตามในรอบตรวจถัดไป" : "✅ อยู่ในเกณฑ์ — ใช้งานต่อได้";
+  return { level, verdict, findings, maxWear, avgWear, maxBulge, wearLevel, bulgeLevel, settings: r };
+}
+
 /* ------------------------------ chart ------------------------------ */
 
 function niceTicks(min, max, count = 8) {
@@ -182,12 +266,17 @@ const STATUS = {
   critical: { fill: "#FCA5A5", stroke: "#DC2626" },
 };
 
-export default function RailProfileChart({ standardPoints, points, rail }) {
+export default function RailProfileChart({ standardPoints, points, rail, variant = "rail", plain }) {
   const [hover, setHover] = useState(null);
-  const r = railSettings(rail);
+  const isPlain = variant === "plain";
+  // plain wheels: no flange/boundary/limit points
+  const r = isPlain ? { ...railSettings(null), boundaryX: -Infinity, limits: [] } : railSettings(rail);
+  const pl = plainSettings(plain);
   const S = toPolyline(standardPoints);
   const M = toPolyline(points);
-  const d = diagnoseRail({ points, standardPoints, rail });
+  const d = isPlain
+    ? { ...diagnosePlain({ points, standardPoints, plain }), limits: [], std: {}, meas: {} }
+    : diagnoseRail({ points, standardPoints, rail });
 
   const size = 760, height = 460, ml = 58, mr = 24, mt = 40, mb = 52;
   const plotW = size - ml - mr, plotH = height - mt - mb;
@@ -207,6 +296,7 @@ export default function RailProfileChart({ standardPoints, points, rail }) {
     if (p.x < r.boundaryX) return "ok";
     const sy = yAt(S, p.x);
     if (sy === null) return "ok";
+    if (isPlain) return levelOf(Math.abs(sy - p.y), pl.wearWarn, pl.wearCrit) || "ok";
     return levelOf(Math.max(0, sy - p.y), r.treadWarn, r.treadCrit) || "ok";
   };
 
@@ -222,14 +312,21 @@ export default function RailProfileChart({ standardPoints, points, rail }) {
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>โปรไฟล์ล้อรถไฟ เทียบกับมาตรฐาน</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
+        {isPlain ? "โปรไฟล์หน้าล้อ เทียบกับมาตรฐาน" : "โปรไฟล์ล้อรถไฟ เทียบกับมาตรฐาน"}
+      </div>
       <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>
         แกน X / Y เป็น mm · เส้นประ = มาตรฐาน (ล้อใหม่) · เส้นทึบ = ที่วัดได้ · วัดแล้ว {M.length} จุด
       </div>
 
       {/* headline numbers */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-        {[["Tread Wear", d.treadWear, d.treadLevel], ["Flange Wear", d.flangeWear, d.flangeLevel]].map(([label, v, lv]) => {
+        {(isPlain
+          ? [["สึกมากสุด", d.maxWear ? Math.max(0, d.maxWear.loss) : null, d.wearLevel],
+             ["สึกเฉลี่ย", d.avgWear ?? null, null],
+             ["นูนมากสุด", d.maxBulge ? d.maxBulge.bulge : 0, d.bulgeLevel]]
+          : [["Tread Wear", d.treadWear, d.treadLevel], ["Flange Wear", d.flangeWear, d.flangeLevel]]
+        ).map(([label, v, lv]) => {
           const c = lv === "critical" ? ["#991B1B", "#FEE2E2", "#FECACA"] : lv === "warning" ? ["#92400E", "#FEF3C7", "#FDE68A"]
             : lv === "ok" ? ["#166534", "#DCFCE7", "#BBF7D0"] : ["#64748b", "#f8fafc", "#e2e8f0"];
           return (
@@ -278,7 +375,7 @@ export default function RailProfileChart({ standardPoints, points, rail }) {
           transform={`rotate(-90 14 ${mt + plotH / 2})`}>y, mm</text>
 
         {/* flange / tread boundary */}
-        {bx >= ml && bx <= ml + plotW && (
+        {!isPlain && bx >= ml && bx <= ml + plotW && (
           <g>
             <line x1={bx} x2={bx} y1={mt - 28} y2={mt + plotH} stroke="#2563EB" strokeDasharray="2 4" strokeWidth="1.4" />
             <text x={bx - 8} y={mt - 14} fontSize="12" fill="#334155" textAnchor="end" fontWeight="700">⇐ Flange</text>
@@ -393,6 +490,36 @@ export default function RailProfileChart({ standardPoints, points, rail }) {
           );
         })()}
 
+        {/* Plain wheel: arrow at the point of maximum wear */}
+        {isPlain && d.maxWear && d.maxWear.loss > 0.005 && (() => {
+          const x = px(d.maxWear.x), sy = yAt(S, d.maxWear.x);
+          if (sy === null) return null;
+          const ys1 = py(sy), ym = py(sy - d.maxWear.loss);
+          return (
+            <g>
+              <text x={x} y={ys1 + 5} fontSize="14" fill="#0f172a" textAnchor="middle">+</text>
+              <text x={x} y={ym + 4} fontSize="13" fill="#2563EB" textAnchor="middle">×</text>
+              <line x1={x - 30} x2={x + 30} y1={ys1} y2={ys1} stroke="#2563EB" strokeWidth="0.8" />
+              <line x1={x - 30} x2={x + 30} y1={ym} y2={ym} stroke="#2563EB" strokeWidth="0.8" />
+              <line x1={x} x2={x} y1={ys1 - 22} y2={ys1} stroke="#2563EB" />
+              {arrowHead(x, ys1, "down")}
+              <line x1={x} x2={x} y1={ym} y2={ym + 22} stroke="#2563EB" />
+              {arrowHead(x, ym, "up")}
+              {(() => {
+                // label beside the arrow (right side, or left near the right edge), inside the plot
+                const right = x < ml + plotW - 150;
+                const ly = Math.min(Math.max((ys1 + ym) / 2 + 4, mt + 14), mt + plotH - 6);
+                return (
+                  <text x={right ? x + 12 : x - 12} y={ly} fontSize="12" fill="#0f172a" fontWeight="700"
+                    textAnchor={right ? "start" : "end"} stroke="#fcfdff" strokeWidth="3" paintOrder="stroke">
+                    สึกมากสุด {f2(d.maxWear.loss)} mm
+                  </text>
+                );
+              })()}
+            </g>
+          );
+        })()}
+
         {/* hover readout */}
         {hover !== null && M[hover] && (
           <text x={px(M[hover].x)} y={py(M[hover].y) - 10} fontSize="11" fontWeight="700" fill="#1E3A8A"
@@ -425,7 +552,7 @@ export default function RailProfileChart({ standardPoints, points, rail }) {
         <span><span style={{ display: "inline-block", width: 22, borderTop: "2.4px solid #2563EB", verticalAlign: "middle", marginRight: 6 }} />ที่วัดได้</span>
         <span><span style={{ display: "inline-block", width: 12, height: 10, background: "#F87171", opacity: 0.4, verticalAlign: "middle", marginRight: 6 }} />ส่วนที่สึก</span>
         <span>+ / × = จุดอ้างอิงที่ใช้วัด (มาตรฐาน / ที่วัดได้)</span>
-        <span>✱ = จุดขีดจำกัด</span>
+        {!isPlain && <span>✱ = จุดขีดจำกัด</span>}
       </div>
     </div>
   );

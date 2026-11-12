@@ -7,7 +7,7 @@ import { db } from "./firebase";
 import Part3DView from "./Part3DView.jsx";
 import CaliperConnector from "./CaliperConnector.jsx";
 import GainAngleChart, { computeAngleInfo, computeAveragePoint, diagnoseProfile } from "./GainAngleChart.jsx";
-import RailProfileChart, { DEFAULT_RAIL, diagnoseRail, railSettings } from "./RailProfileChart.jsx";
+import RailProfileChart, { DEFAULT_RAIL, diagnoseRail, railSettings, diagnosePlain, plainSettings } from "./RailProfileChart.jsx";
 
 // Theme — blue/slate, matching the Gain chart colors
 const PRIMARY = "#2563EB";
@@ -231,13 +231,18 @@ const railToForm = (rail) => {
     limits: r.limits.map(l => ({ label: l.label, x: String(l.x), y: String(l.y) })),
   };
 };
+const plainToForm = (plain) => {
+  const p = plainSettings(plain);
+  return { wearWarn: String(p.wearWarn), wearCrit: String(p.wearCrit) };
+};
 const emptyStandardForm = {
   model: "", partType: "",
   diameter: "", thickness: "",
   warning: 3, critical: 10,
   modelUrl: "",
-  profileMode: "rail",              // "rail" = railway wheel profile (mm) · "gain" = Gain X/Y (%)
+  profileMode: "rail",   // "rail" = railway wheel (mm) · "plain" = ordinary wheel (mm) · "gain" = Gain X/Y (%)
   rail: railToForm(DEFAULT_RAIL),
+  plain: plainToForm(null),
 };
 const emptyGainPoints = (n = 10) => Array.from({ length: n }, () => ({ x: "", y: "" }));
 const strOrEmpty = v => (v === null || v === undefined ? "" : String(v));
@@ -290,6 +295,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
       modelUrl: s.modelUrl || "",
       profileMode: s.profileMode || "gain",
       rail: railToForm(s.rail),
+      plain: plainToForm(s.plain),
     });
     if (Array.isArray(s.specs?.gainPoints) && s.specs.gainPoints.length > 0) {
       const count = s.specs.gainPoints.length;
@@ -318,6 +324,10 @@ function StandardsTab({ standards, canManage, currentUser }) {
     const crit = toNum(form.critical) ?? 10;
     if (warn >= crit) {
       alert("เกณฑ์ ⚠️ เตือน ต้องน้อยกว่า 🔴 วิกฤต");
+      return;
+    }
+    if (form.profileMode === "plain" && (toNum(form.plain.wearWarn) ?? 0) >= (toNum(form.plain.wearCrit) ?? 0)) {
+      alert("เกณฑ์การสึก: ค่าเตือนต้องน้อยกว่าค่าวิกฤต");
       return;
     }
     if (form.profileMode === "rail") {
@@ -361,6 +371,10 @@ function StandardsTab({ standards, canManage, currentUser }) {
             .filter(l => l.x !== null && l.y !== null),
         };
       })(),
+      plain: {
+        wearWarn: toNum(form.plain.wearWarn) ?? 1,
+        wearCrit: toNum(form.plain.wearCrit) ?? 2,
+      },
       updatedBy: currentUser?.name || "unknown",
       updatedAt: serverTimestamp(),
     };
@@ -421,6 +435,15 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
                   ⚠️ ≥{s.thresholds?.warning}% &nbsp;|&nbsp; 🔴 &gt;{s.thresholds?.critical}%
                 </div>
+                {s.profileMode === "plain" && (() => {
+                  const pl = plainSettings(s.plain);
+                  return (
+                    <div style={{ fontSize: 11, color: "#1E3A8A", marginTop: 4, background: PRIMARY_LIGHT,
+                      border: `1px solid ${PRIMARY_BORDER}`, borderRadius: 8, padding: "4px 8px", display: "inline-block" }}>
+                      🛞 ล้อทั่วไป · สึก ⚠️ {pl.wearWarn} / 🔴 {pl.wearCrit} mm · โปรไฟล์ {s.specs?.gainPoints?.length || 0} จุด
+                    </div>
+                  );
+                })()}
                 {s.profileMode === "rail" && (() => {
                   const r = railSettings(s.rail);
                   return (
@@ -516,7 +539,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
 
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 6px" }}>รูปแบบการเทียบโปรไฟล์</div>
             <div style={{ display: "inline-flex", padding: 3, gap: 3, background: "#f1f5f9", borderRadius: 8, border: `1px solid ${LINE}`, marginBottom: 10 }}>
-              {[["rail", "🚆 ล้อรถไฟ (mm)"], ["gain", "Gain X/Y (%)"]].map(([m, label]) => (
+              {[["rail", "🚆 ล้อรถไฟ (mm)"], ["plain", "🛞 ล้อทั่วไป (mm)"], ["gain", "Gain X/Y (%)"]].map(([m, label]) => (
                 <button key={m} type="button" onClick={() => setForm({ ...form, profileMode: m })} style={{
                   border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, fontFamily: "inherit",
                   cursor: "pointer", background: form.profileMode === m ? "#fff" : "transparent",
@@ -525,6 +548,21 @@ function StandardsTab({ standards, canManage, currentUser }) {
                 }}>{label}</button>
               ))}
             </div>
+
+            {form.profileMode === "plain" && (
+              <div style={{ background: "#f8fafc", border: `1px solid ${LINE}`, borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, lineHeight: 1.5 }}>
+                  วัดการสึกแนวตั้ง (mm) ทุกจุดทั่วหน้าล้อ · ใช้เกณฑ์เดียวกันกับผิวนูน
+                  <br /><b style={{ color: "#92400E" }}>ค่าเกณฑ์เป็นค่าตั้งต้น — แก้ให้ตรงกับเกณฑ์จริงของล้อรุ่นนี้</b>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <FormField label="สึก ⚠️ เตือน (mm)" type="number" value={form.plain.wearWarn}
+                    onChange={v => setForm({ ...form, plain: { ...form.plain, wearWarn: v } })} />
+                  <FormField label="สึก 🔴 วิกฤต (mm)" type="number" value={form.plain.wearCrit}
+                    onChange={v => setForm({ ...form, plain: { ...form.plain, wearCrit: v } })} />
+                </div>
+              </div>
+            )}
 
             {form.profileMode === "rail" && (() => {
               const r = form.rail;
@@ -568,11 +606,11 @@ function StandardsTab({ standards, canManage, currentUser }) {
             })()}
 
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "12px 0 4px" }}>
-              {form.profileMode === "rail" ? "โปรไฟล์มาตรฐาน (ล้อใหม่) — X / Y (mm)" : "Gain X / Gain Y รายจุด (โปรไฟล์หน้ายาง) — ไม่บังคับ"}
+              {form.profileMode !== "gain" ? "โปรไฟล์มาตรฐาน (ล้อใหม่) — X / Y (mm)" : "Gain X / Gain Y รายจุด (โปรไฟล์หน้ายาง) — ไม่บังคับ"}
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
-              {form.profileMode === "rail" ? (
-                <>วางพิกัดโปรไฟล์ล้อใหม่ X / Y (mm) เรียงจากปีกล้อ (ซ้าย) ไปหน้าล้อ (ขวา) · ช่วงปีกล้อที่ชันควรมีจุดถี่ประมาณทุก 1 mm
+              {form.profileMode !== "gain" ? (
+                <>วางพิกัดโปรไฟล์ล้อใหม่ X / Y (mm) เรียงจากซ้ายไปขวา{form.profileMode === "rail" ? " (ปีกล้อ → หน้าล้อ)" : ""} · ช่วงปีกล้อที่ชันควรมีจุดถี่ประมาณทุก 1 mm
                 · ใช้ 📋 วางค่า วางสองคอลัมน์จาก Excel ได้ (สูงสุด {MAX_POINTS} จุด)</>
               ) : (
                 <>X = ระยะจากขอบซ้าย (mm) เริ่มที่ 0 · ถ้ากรอก X ทุกจุด ระบบจะเทียบผลตรวจตามระยะจริง
@@ -730,7 +768,9 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   const selected = standards.find(s => s.id === selectedId);
   const isRail = selected?.profileMode === "rail";
-  const entryMode = isRail ? "xy" : entryModePref;   // railway profiles always need X (mm)
+  const isPlain = selected?.profileMode === "plain";
+  const isMm = isRail || isPlain;                      // mm-profile modes always need X (mm)
+  const entryMode = isMm ? "xy" : entryModePref;
   // Ignore empty rows at the end (e.g. a row added with "+ เพิ่มจุด" but not filled yet)
   // trimmedGain keeps X exactly as entered (blank = no real position) — the chart and the
   // diagnosis use it to decide whether they can compare by X (mm).
@@ -778,7 +818,7 @@ function InspectTab({ standards, inspections, currentUser }) {
   // Gain profile diagnosis (same logic the chart shows) — used for the hint in the
   // surface checklist, the combined result and the saved record.
   const gainDiag = useMemo(() => {
-    if (!selected || isRail) return { level: null, findings: [], worn: [], bulge: [] };
+    if (!selected || isMm) return { level: null, findings: [], worn: [], bulge: [] };
     const sp = selected.specs?.gainPoints || [];
     return diagnoseProfile({
       points: trimmedGain,
@@ -786,13 +826,18 @@ function InspectTab({ standards, inspections, currentUser }) {
       standardY: selected.specs?.gainAverage?.y,
       thresholds: selected.thresholds,
     });
-  }, [selected, trimmedGain, isRail]);
+  }, [selected, trimmedGain, isMm]);
 
   // Railway wheel profile diagnosis (Tread / Flange wear in mm, limit points)
   const railDiag = useMemo(() => (
     isRail ? diagnoseRail({ points: trimmedGain, standardPoints: selected?.specs?.gainPoints, rail: selected?.rail })
       : { level: null }
   ), [isRail, selected, trimmedGain]);
+
+  const plainDiag = useMemo(() => (
+    isPlain ? diagnosePlain({ points: trimmedGain, standardPoints: selected?.specs?.gainPoints, plain: selected?.plain })
+      : { level: null }
+  ), [isPlain, selected, trimmedGain]);
 
   // Final result = the worst of: size (diameter/thickness), Gain profile, surface condition
   const RANK = { ok: 0, warning: 1, critical: 2 };
@@ -818,12 +863,18 @@ function InspectTab({ standards, inspections, currentUser }) {
       railDiag.limits.filter(l => l.exceeded).forEach(l => bits.push(`เกิน ${l.label}`));
       parts.push({ key: "rail", label: "โปรไฟล์ล้อ (Tread / Flange)", status: railDiag.level, detail: bits.join(" · ") });
     }
+    if (plainDiag.level) {
+      const bits = [];
+      if (plainDiag.maxWear) bits.push(`สึกมากสุด ${Math.max(0, plainDiag.maxWear.loss).toFixed(2)} mm @X ${+plainDiag.maxWear.x.toFixed(2)}`);
+      if (plainDiag.maxBulge && plainDiag.maxBulge.bulge >= plainDiag.settings.wearWarn) bits.push(`นูน ${plainDiag.maxBulge.bulge.toFixed(2)} mm`);
+      parts.push({ key: "plain", label: "โปรไฟล์หน้าล้อ (mm)", status: plainDiag.level, detail: bits.join(" · ") });
+    }
     if (anyConditionChecked) {
       parts.push({ key: "surface", label: "สภาพผิว", status: conditionStatus,
         detail: CONDITION_ITEMS.filter(c => condition[c.key]).map(c => c.label).join(", ") });
     }
     return parts;
-  }, [overallStatus, liveResults, gainDiag, railDiag, anyConditionChecked, conditionStatus, condition]);
+  }, [overallStatus, liveResults, gainDiag, railDiag, plainDiag, anyConditionChecked, conditionStatus, condition]);
   const finalStatus = resultParts.length
     ? resultParts.reduce((w, p) => (RANK[p.status] > RANK[w] ? p.status : w), "ok")
     : null;
@@ -961,7 +1012,12 @@ function InspectTab({ standards, inspections, currentUser }) {
         gainDiagnosis: gainDiag.level
           ? { level: gainDiag.level, verdict: gainDiag.verdict, findings: gainDiag.findings.map(f => f.text) }
           : null,
-        profileMode: isRail ? "rail" : "gain",
+        profileMode: isRail ? "rail" : isPlain ? "plain" : "gain",
+        plainResult: isPlain && plainDiag.level ? {
+          level: plainDiag.level, verdict: plainDiag.verdict,
+          maxWear: plainDiag.maxWear, avgWear: plainDiag.avgWear, maxBulge: plainDiag.maxBulge,
+          findings: plainDiag.findings.map(f => f.text),
+        } : null,
         railResult: isRail && railDiag.level ? {
           level: railDiag.level, verdict: railDiag.verdict,
           treadWear: railDiag.treadWear, flangeWear: railDiag.flangeWear,
@@ -1057,7 +1113,7 @@ function InspectTab({ standards, inspections, currentUser }) {
       </Card>
 
       <Card dim={!selected}>
-        <SectionTitle step={3} title={`${isRail ? "โปรไฟล์ล้อรถไฟ" : "Gain"} — วัดแล้ว ${filledGain.length} จุด (ขอบซ้าย → ขวา)`} right={
+        <SectionTitle step={3} title={`${isRail ? "โปรไฟล์ล้อรถไฟ" : isPlain ? "โปรไฟล์หน้าล้อ" : "Gain"} — วัดแล้ว ${filledGain.length} จุด (ขอบซ้าย → ขวา)`} right={
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {!importOpen && (
             <button type="button" disabled={!selected} onClick={() => setImportOpen(true)} style={{
@@ -1086,10 +1142,10 @@ function InspectTab({ standards, inspections, currentUser }) {
         {/* entry mode + point tools — the number of points is however many get measured */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
           <span style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>ค่าที่ยิงต่อ 1 จุด:</span>
-          {isRail ? (
+          {isMm ? (
             <span style={{ fontSize: 11.5, fontWeight: 700, color: PRIMARY, background: PRIMARY_LIGHT,
               border: `1px solid ${PRIMARY_BORDER}`, borderRadius: 8, padding: "4px 10px" }}>
-              🚆 ล้อรถไฟ: X แล้ว Y (mm)
+              {isRail ? "🚆 ล้อรถไฟ" : "🛞 ล้อทั่วไป"}: X แล้ว Y (mm)
             </span>
           ) : (
           <div style={{ display: "inline-flex", padding: 3, gap: 3, background: "#f1f5f9", borderRadius: 8, border: `1px solid ${LINE}` }}>
@@ -1242,11 +1298,11 @@ function InspectTab({ standards, inspections, currentUser }) {
 
           {(() => {
             if (!selected) return null;
-            const hasStd = isRail
+            const hasStd = isMm
               ? (selected.specs?.gainPoints || []).filter(p => p?.x != null && p?.y != null).length >= 2
               : (selected.specs?.gainAverage?.x != null || selected.specs?.gainAverage?.y != null);
             if (!hasStd) {
-              return isRail ? (
+              return isMm ? (
                 <div style={{ border: `1px dashed ${LINE}`, borderRadius: 12, padding: "36px 16px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
                   รุ่นนี้ยังไม่มีโปรไฟล์มาตรฐาน (X / Y) — ใส่ในแท็บ 📐 ค่ามาตรฐาน ก่อน
                 </div>
@@ -1264,8 +1320,9 @@ function InspectTab({ standards, inspections, currentUser }) {
             }
             return (
               <div style={{ position: stackGain ? "static" : "sticky", top: 110 }}>
-                {isRail ? (
-                  <RailProfileChart standardPoints={selected.specs?.gainPoints} points={trimmedGain} rail={selected.rail} />
+                {isMm ? (
+                  <RailProfileChart standardPoints={selected.specs?.gainPoints} points={trimmedGain}
+                    rail={selected.rail} plain={selected.plain} variant={isPlain ? "plain" : "rail"} />
                 ) : (
                   <GainAngleChart
                     standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
