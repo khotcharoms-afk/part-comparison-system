@@ -188,6 +188,57 @@ export function makeStandardFn(standardPoints, standardY) {
 export const positionOf = (i, n) => (n > 1 ? i / (n - 1) : 0.5); // i is 0-based
 
 /**
+ * How measured points line up with the standard.
+ *  • byX = true  — both the standard and the measurement have real X positions (mm from
+ *    the left edge): each point is compared with the standard AT ITS X. Works with any
+ *    number of points, uneven spacing, or stopping before the far edge. Points outside
+ *    the standard's X range aren't compared.
+ *  • byX = false — no usable X: compare by order, first point = left edge, last = right edge.
+ */
+export function makeProfileModel({ points, standardPoints, standardY }) {
+  const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const pts = points || [];
+  const n = pts.length;
+  const stdXY = (standardPoints || []).map(p => ({ x: num(p?.x), y: num(p?.y) })).filter(p => p.y !== null);
+  const stdHasX = stdXY.length >= 2 && stdXY.every(p => p.x !== null)
+    && stdXY.every((p, i) => i === 0 || p.x > stdXY[i - 1].x);
+  const meas = pts.map((p, i) => ({ i, x: num(p?.x), y: num(p?.y) }));
+  const measY = meas.filter(p => p.y !== null);
+  const measHasX = measY.length > 0 && measY.every(p => p.x !== null);
+
+  if (stdHasX && measHasX) {
+    const f = monotoneInterp(stdXY.map(p => p.x), stdXY.map(p => p.y));
+    const x0 = stdXY[0].x, x1 = stdXY[stdXY.length - 1].x;
+    const tol = (x1 - x0) * 0.02;
+    const allX = [x0, x1, ...measY.map(p => p.x)];
+    return {
+      byX: true, curve: true,
+      pos: i => meas[i]?.x ?? i + 1,
+      refAt: i => {
+        const x = meas[i]?.x;
+        if (x === null || x === undefined || x < x0 - tol || x > x1 + tol) return null;
+        return f(Math.min(x1, Math.max(x0, x)));
+      },
+      stdAt: c => f(c),
+      stdRange: [x0, x1],
+      axis: [Math.min(...allX), Math.max(...allX)],
+      zoneT: i => Math.min(1, Math.max(0, ((meas[i]?.x ?? x0) - x0) / ((x1 - x0) || 1))),
+    };
+  }
+  const fn = makeStandardFn(standardPoints, standardY);
+  const N = Math.max(n, 2);
+  return {
+    byX: false, curve: fn.curve,
+    pos: i => i + 1,
+    refAt: i => fn.at(positionOf(i, n)),
+    stdAt: c => fn.at((c - 1) / (N - 1)),
+    stdRange: [1, N],
+    axis: [1, N],
+    zoneT: i => positionOf(i, n),
+  };
+}
+
+/**
  * Reads the measured profile against the standard and describes it in plain Thai:
  * where it's worn (left edge / centre / right edge), any bulges, left-vs-right
  * imbalance, overall wear, and a verdict. Points run left edge (#1) → right edge (#N).
@@ -198,20 +249,28 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
   const crit = Number(thresholds?.critical) || 10;
   const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
   const n = (points || []).length;
-  const stdFn = makeStandardFn(standardPoints, standardY);
-  const stdAt = i => stdFn.at(positionOf(i, n));
+  const model = makeProfileModel({ points, standardPoints, standardY });
   const rows = [];
   (points || []).forEach((p, i) => {
-    const y = num(p?.y), ref = stdAt(i);
+    const y = num(p?.y), ref = model.refAt(i);
     if (y === null || ref === null || ref === 0) return;
-    rows.push({ idx: i + 1, pct: ((y - ref) / Math.abs(ref)) * 100 });
+    rows.push({ idx: i + 1, i, x: num(p?.x), pct: ((y - ref) / Math.abs(ref)) * 100 });
   });
-  if (rows.length === 0) return { level: null, verdict: "", findings: [], worn: [], bulge: [], wornRange: "", bulgeRange: "" };
+  if (rows.length === 0) return { level: null, verdict: "", findings: [], worn: [], bulge: [], wornRange: "", bulgeRange: "", byX: model.byX };
 
   const zoneOf = idx => {
-    const t = (idx - 0.5) / n;
+    const t = model.zoneT(idx - 1);
     return t < 1 / 3 ? "left" : t > 2 / 3 ? "right" : "center";
   };
+  const fmtX = v => +v.toFixed(2);
+  const whereText = list => {
+    const r = ranges(list.map(x => x.idx));
+    if (!model.byX) return r;
+    const xs = list.map(x => x.x).filter(v => v !== null);
+    const a = Math.min(...xs), b = Math.max(...xs);
+    return `${r} (X ${a === b ? fmtX(a) : `${fmtX(a)}–${fmtX(b)}`} mm)`;
+  };
+  const at = r => (model.byX && r.x !== null ? `#${r.idx} (X ${fmtX(r.x)} mm)` : `#${r.idx}`);
   const ZONE = { left: "ขอบซ้าย", center: "กลางหน้ายาง", right: "ขอบขวา" };
   const ranges = idxs => {
     const out = [];
@@ -244,7 +303,7 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
     const worst = worn.reduce((a, b) => (b.pct < a.pct ? b : a));
     findings.push({
       tone: worn.some(r => r.pct < -crit) ? "bad" : "warn",
-      text: `${where} — จุด ${ranges(worn.map(r => r.idx))} · ลึกสุดที่ #${worst.idx} (${worst.pct.toFixed(1)}%)`,
+      text: `${where} — จุด ${whereText(worn)} · ลึกสุดที่ ${at(worst)} (${worst.pct.toFixed(1)}%)`,
     });
   }
 
@@ -256,7 +315,7 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
     const top = bulge.reduce((a, b) => (b.pct > a.pct ? b : a));
     findings.push({
       tone: bulge.some(r => r.pct > crit) ? "bad" : "warn",
-      text: `พบยางนูน/บวมที่${zones} — จุด ${ranges(bulge.map(r => r.idx))} · มากสุดที่ #${top.idx} (+${top.pct.toFixed(1)}%) ควรตรวจด้วยตาว่ามีรอยบวมหรือผิวแยกชั้นหรือไม่`,
+      text: `พบยางนูน/บวมที่${zones} — จุด ${whereText(bulge)} · มากสุดที่ ${at(top)} (+${top.pct.toFixed(1)}%) ควรตรวจด้วยตาว่ามีรอยบวมหรือผิวแยกชั้นหรือไม่`,
     });
   }
 
@@ -277,7 +336,7 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
   // --- overall ---
   findings.push({
     tone: "info",
-    text: `โดยรวมหน้ายาง${mean < 0 ? "ต่ำกว่า" : "สูงกว่า"}มาตรฐานเฉลี่ย ${Math.abs(mean).toFixed(1)}% (วัดได้ ${rows.length}/${n} จุด)`,
+    text: `โดยรวมหน้ายาง${mean < 0 ? "ต่ำกว่า" : "สูงกว่า"}มาตรฐานเฉลี่ย ${Math.abs(mean).toFixed(1)}% (เทียบได้ ${rows.length}/${n} จุด · ${model.byX ? "เทียบตามระยะ X (mm)" : "เทียบตามลำดับจุด"})`,
   });
 
   const anyCrit = rows.some(r => Math.abs(r.pct) > crit);
@@ -288,7 +347,7 @@ export function diagnoseProfile({ points, standardPoints, standardY, thresholds 
     : "✅ หน้ายางอยู่ในเกณฑ์ — ใช้งานต่อได้";
   return {
     level, verdict, findings, worn, bulge,
-    wornRange: ranges(worn.map(r => r.idx)), bulgeRange: ranges(bulge.map(r => r.idx)),
+    wornRange: whereText(worn), bulgeRange: whereText(bulge), byX: model.byX,
   };
 }
 
@@ -317,9 +376,11 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const hasAvgY = avgY !== null && !isNaN(avgY);
 
   const totalPoints = points?.length || 0;
+  const model = makeProfileModel({ points, standardPoints, standardY });
+  const byX = model.byX;
   const series = (points || []).map((p, i) => {
     const yVal = parseFloat(p.y);
-    return { idx: i + 1, x: p.x, y: p.y, yVal: isNaN(yVal) ? null : yVal };
+    return { idx: i + 1, i, pos: model.pos(i), x: p.x, y: p.y, yVal: isNaN(yVal) ? null : yVal };
   });
   const validSeries = series.filter(p => p.yVal !== null);
 
@@ -327,47 +388,60 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   // are enough of them, the standard is drawn as a curve instead of a single
   // flat line, so a standard that was entered as a real tire-like profile
   // actually reads as one on the chart.
-  const stdFn = makeStandardFn(standardPoints, standardY);
-  const hasStandardCurve = stdFn.curve;
-  const axisN = Math.max(totalPoints, 2);
-  // Standard sampled finely across the measured axis (#1 … #N) — works for any point count
+  const hasStandardCurve = model.curve;
+  // Standard sampled finely across its range (point order #1…#N, or X in mm)
+  const [s0, s1] = model.stdRange;
   const stdSamples = hasStandardCurve
-    ? Array.from({ length: 81 }, (_, k) => {
-        const t = k / 80;
-        return { idxF: 1 + t * (axisN - 1), yVal: stdFn.at(t) };
+    ? Array.from({ length: 121 }, (_, k) => {
+        const c = s0 + (k / 120) * (s1 - s0);
+        return { pos: c, yVal: model.stdAt(c) };
       })
     : [];
 
-  const diff = (hasStandardY && hasAvgY) ? (avgY - sy) : null;
-  const diffPercent = (diff !== null && sy !== 0) ? (Math.abs(diff) / Math.abs(sy)) * 100 : null;
-  const diffX = (hasStandardX && hasAvgX && sameCount) ? (avgX - sx) : null;
+
+  const diffX = (hasStandardX && hasAvgX && sameCount && !byX) ? (avgX - sx) : null; // X is a position, not a measurement, when comparing by X
   const diffXPercent = (diffX !== null && sx !== 0) ? (Math.abs(diffX) / Math.abs(sx)) * 100 : null;
 
   // Reference (standard) value for each point index: the matching per-point
   // standard when a standard curve exists, otherwise the standard's average.
-  const refYAt = (idx) => {
-    const v = stdFn.at(positionOf(idx - 1, totalPoints));
-    return v !== null ? v : (hasStandardY ? sy : null);
+  const refYAt = (p) => {
+    const v = model.refAt(p.i);
+    if (v !== null && v !== undefined) return v;
+    return !byX && hasStandardY ? sy : null;
   };
   const pointDev = (p) => {
-    const ref = refYAt(p.idx);
+    const ref = refYAt(p);
     if (ref === null || ref === 0) return { ref, pct: null, status: "ok" };
     const pct = (Math.abs(p.yVal - ref) / Math.abs(ref)) * 100;
     const status = pct > critPct ? "critical" : pct >= warnPct ? "warning" : "ok";
     return { ref, pct, status };
   };
   const devs = validSeries.map(pointDev);
+  // Average change: compare like with like — when comparing by X, the standard average is
+  // taken at the same X positions that were measured (a partial scan isn't compared with
+  // the whole tread's average).
+  const refsHere = devs.map(d => d.ref).filter(v => v !== null && v !== undefined);
+  const syCmp = byX ? (refsHere.length ? refsHere.reduce((a, b) => a + b, 0) / refsHere.length : NaN) : sy;
+  const avgYCmp = byX
+    ? (() => { const ys = validSeries.filter((p, i) => devs[i].ref !== null && devs[i].ref !== undefined).map(p => p.yVal);
+        return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : NaN; })()
+    : avgY;
+  const diff = (Number.isFinite(syCmp) && Number.isFinite(avgYCmp)) ? (avgYCmp - syCmp) : null;
+  const diffPercent = (diff !== null && syCmp !== 0) ? (Math.abs(diff) / Math.abs(syCmp)) * 100 : null;
   const warnCount = devs.filter(d => d.status === "warning").length;
   const diagnosis = diagnoseProfile({ points, standardPoints, standardY, thresholds });
   const critCount = devs.filter(d => d.status === "critical").length;
 
   // Tolerance band around the standard (per point index across the whole axis)
-  const bandIdxs = Array.from({ length: axisN }, (_, i) => i + 1);
-  const bandRefs = bandIdxs.map(i => ({ idx: i, ref: refYAt(i) })).filter(b => b.ref !== null && b.ref !== 0);
-  const bandAt = (pct, sign) => bandRefs.map(b => ({ idx: b.idx, y: b.ref + sign * Math.abs(b.ref) * pct / 100 }));
+  const bandRefs = (hasStandardCurve
+    ? stdSamples.map(s => ({ pos: s.pos, ref: s.yVal }))
+    : hasStandardY ? [{ pos: model.axis[0], ref: sy }, { pos: model.axis[1], ref: sy }] : []
+  ).filter(b => b.ref !== null && b.ref !== 0);
+  const bandAt = (pct, sign) => bandRefs.map(b => ({ pos: b.pos, y: b.ref + sign * Math.abs(b.ref) * pct / 100 }));
 
   // Base (zoom = 1) data bounds. X = point index; Y = raw Gain Y value.
-  const rawMinXIdx = 1, rawMaxXIdx = Math.max(totalPoints, 2);
+  const [rawMinXIdx, rawMaxXIdx] = model.axis;
+  const padX = byX ? Math.max(1, (rawMaxXIdx - rawMinXIdx) * 0.04) : 0.6;
   const allY = [
     ...(hasStandardY ? [sy] : []),
     ...(hasAvgY ? [avgY] : []),
@@ -384,7 +458,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const rawMinY = allY.length ? Math.min(...allY) : -1;
   const rawMaxY = allY.length ? Math.max(...allY) : 1;
   const rangeY = (rawMaxY - rawMinY) || 1;
-  const baseMinX = rawMinXIdx - 0.6, baseMaxX = rawMaxXIdx + 0.6;
+  const baseMinX = rawMinXIdx - padX, baseMaxX = rawMaxXIdx + padX;
   const baseMinY = rawMinY - rangeY * 0.12, baseMaxY = rawMaxY + rangeY * 0.12;
   const baseCenterX = (baseMinX + baseMaxX) / 2, baseCenterY = (baseMinY + baseMaxY) / 2;
   const baseHalfW = (baseMaxX - baseMinX) / 2, baseHalfH = (baseMaxY - baseMinY) / 2;
@@ -460,18 +534,19 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const stdPy = hasStandardY ? toPx(0, sy).py : null;
   const avgPy = hasAvgY ? toPx(0, avgY).py : null;
 
-  const linePoints = validSeries.map(p => toPx(p.idx, p.yVal));
+  // drawn left → right by position (X can be entered out of order)
+  const linePoints = [...validSeries].sort((a, b) => a.pos - b.pos).map(p => toPx(p.pos, p.yVal));
   // Measured values: straight segments between points — only what was actually
   // measured, no invented bumps between points. (The standard stays a smooth
   // curve because it represents the wheel's intended profile.)
   const measuredPathStr = linePoints.map((pt, i) => `${i ? "L" : "M"}${pt.px},${pt.py}`).join(" ");
-  const stdLinePoints = stdSamples.map(p => toPx(p.idxF, p.yVal));
+  const stdLinePoints = stdSamples.map(p => toPx(p.pos, p.yVal));
   const stdSmoothPathStr = stdLinePoints.map((pt, i) => `${i ? "L" : "M"}${pt.px.toFixed(2)},${pt.py.toFixed(2)}`).join(" ");
 
   // Closed band shape: upper edge left→right, then lower edge right→left
   const bandPath = (pct) => {
-    const up = bandAt(pct, 1).map(b => toPx(b.idx, b.y));
-    const lo = bandAt(pct, -1).map(b => toPx(b.idx, b.y)).reverse();
+    const up = bandAt(pct, 1).map(b => toPx(b.pos, b.y));
+    const lo = bandAt(pct, -1).map(b => toPx(b.pos, b.y)).reverse();
     if (up.length < 2) return "";
     // Same smooth curve as the standard line, scaled ±pct — so the band follows
     // the standard exactly and starts/ends at the same points (#1 … #N).
@@ -486,7 +561,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
   const stdOutlinePts = hasStandardCurve
     ? stdLinePoints
     : (stdPy !== null && totalPoints >= 1
-        ? [toPx(1, sy), toPx(Math.max(totalPoints, 2), sy)]
+        ? [toPx(model.axis[0], sy), toPx(model.axis[1], sy)]
         : []);
   const stdOutline = hasStandardCurve ? stdSmoothPathStr
     : stdOutlinePts.length === 2 ? `M${stdOutlinePts[0].px},${stdOutlinePts[0].py} L${stdOutlinePts[1].px},${stdOutlinePts[1].py}` : "";
@@ -502,7 +577,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
     const ref = devs[i].ref;
     if (!ref) return acc;
     const v = ((p.yVal - ref) / Math.abs(ref)) * 100;
-    return !acc || v < acc.v ? { idx: p.idx, v } : acc;
+    return !acc || v < acc.v ? { idx: p.idx, x: p.x, v } : acc;
   }, null);
 
   return (
@@ -512,7 +587,10 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           <div style={{ fontSize: 13, fontWeight: 700, color: "#475569" }}>
             โปรไฟล์หน้ายาง (ภาพตัดขวาง) เทียบกับมาตรฐาน
           </div>
-          <div style={{ fontSize: 11, color: "#94a3b8" }}>วัดจากขอบซ้าย → ขอบขวา · กรอกแล้ว {count || 0}/{totalPoints} จุด</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>
+            วัดจากขอบซ้าย → ขอบขวา · กรอกแล้ว {count || 0} จุด ·{" "}
+            <b style={{ color: byX ? "#2563EB" : "#94a3b8" }}>{byX ? "เทียบตามระยะ X (mm)" : "เทียบตามลำดับจุด"}</b>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <span style={{ fontSize: 10, color: isDefaultView ? "#cbd5e1" : "#2563EB", fontWeight: 700, minWidth: 34, textAlign: "right" }}>
@@ -561,7 +639,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           )}
           {worst && worst.v < -warnPct && (
             <span style={{ ...badgeStyle, color: "#991B1B", background: "#FFF1F2", borderColor: "#FECDD3" }}>
-              สึกมากสุดที่ #{worst.idx} ({worst.v.toFixed(1)}%)
+              สึกมากสุดที่ #{worst.idx}{byX && worst.x !== "" ? ` (X ${worst.x} mm)` : ""} ({worst.v.toFixed(1)}%)
             </span>
           )}
           {hasStandardY && (
@@ -624,7 +702,8 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
             graph paper, so it's easy to trace straight up/down to read a
             point's Y value off the axis */}
         {series.map((p) => {
-          const { px } = toPx(p.idx, 0);
+          if (p.yVal === null && byX) return null;
+          const { px } = toPx(p.pos, 0);
           if (px < margin - 1 || px > size - margin + 1) return null;
           return (
             <line key={`gx-${p.idx}`} x1={px} y1={margin} x2={px} y2={height - margin}
@@ -644,8 +723,8 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         })()}
 
         {/* edge markers: which side is which */}
-        {totalPoints >= 2 && (() => {
-          const l = toPx(1, 0).px, r = toPx(totalPoints, 0).px;
+        {(byX || totalPoints >= 2) && (() => {
+          const l = toPx(model.stdRange[0], 0).px, r = toPx(model.stdRange[1], 0).px;
           return (
             <g fontSize="10" fill="#64748B" fontWeight="700">
               {l >= margin - 1 && <text x={l} y={height - margin + 34} textAnchor="middle">◀ ขอบซ้าย</text>}
@@ -654,9 +733,19 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           );
         })()}
 
-        {/* X axis labels — point index */}
-        {series.map((p) => {
-          const { px } = toPx(p.idx, minY);
+        {/* X axis labels — point index, or mm when comparing by X */}
+        {byX ? (
+          <g>
+            {niceTicks(minX, maxX, 8).ticks.map(v => {
+              const { px } = toPx(v, minY);
+              return (
+                <text key={`xt-${v}`} x={px} y={height - margin + 18} fontSize="10.5" fill="#94a3b8" textAnchor="middle">{v}</text>
+              );
+            })}
+            <text x={size - margin} y={height - margin + 34} fontSize="10" fill="#94a3b8" textAnchor="end" dx="-70">X (mm)</text>
+          </g>
+        ) : series.map((p) => {
+          const { px } = toPx(p.pos, minY);
           if (px < margin - 1 || px > size - margin + 1) return null;
           return (
             <text key={`xt-${p.idx}`} x={px} y={height - margin + 18} fontSize="10.5" fill="#94a3b8" textAnchor="middle">
@@ -690,7 +779,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
 
           {/* each measured point — colored by how far it is from the standard */}
           {validSeries.map((p, i) => {
-            const { px, py } = toPx(p.idx, p.yVal);
+            const { px, py } = toPx(p.pos, p.yVal);
             const st = POINT_STATUS[devs[i].status];
             return (
               <g key={p.idx} data-pt="1"
@@ -726,10 +815,10 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
           const hit = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
           const out = [];
           for (const { p, d } of candidates) {
-            const { px, py } = toPx(p.idx, p.yVal);
+            const { px, py } = toPx(p.pos, p.yVal);
             if (px < margin - 1 || px > size - margin + 1 || py < margin - 1 || py > height - margin + 1) continue;
             const line1 = `#${p.idx} Y=${p.yVal}${d.pct !== null ? ` (${d.pct.toFixed(1)}%)` : ""}`;
-            const line2 = `X=${p.x || p.idx}${d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : ""}`;
+            const line2 = `X=${p.x !== "" ? p.x : p.idx}${byX ? " mm" : ""}${d.ref !== null ? ` · มาตรฐาน ${+d.ref.toFixed(3)}` : " · นอกช่วงมาตรฐาน"}`;
             const w = Math.max(line1.length * 6.4, line2.length * 5.2) + 6;
             const anchor = px < margin + w / 2 ? "start" : px > size - margin - w / 2 ? "end" : "middle";
             const x1 = anchor === "start" ? px - 3 : anchor === "end" ? px - w + 3 : px - w / 2;
@@ -774,11 +863,13 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
         // fixed, readable scale: at least ±1.5× the critical limit, at most ±50%
         const R = Math.min(50, Math.max(critPct * 1.5, Math.ceil(maxAbs * 1.15)));
         const yOf = v => top + (1 - (Math.max(-R, Math.min(R, v)) + R) / (2 * R)) * pH;
-        const xOf = idx => toPx(idx, 0).px;
+        const xOf = c => toPx(c, 0).px;
         const step = R <= 15 ? 5 : R <= 30 ? 10 : 25;
         const ticks = [];
         for (let v = -Math.floor(R / step) * step; v <= R; v += step) ticks.push(v);
-        const barW = Math.max(6, Math.min(26, (plotW / Math.max(totalPoints, 1)) * 0.5));
+        const xsSorted = validSeries.map(p => xOf(p.pos)).sort((a, b) => a - b);
+        const minGap = xsSorted.slice(1).reduce((g, x, k) => Math.min(g, x - xsSorted[k]), plotW);
+        const barW = Math.max(4, Math.min(26, minGap * 0.55));
         return (
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", margin: "0 0 4px 2px" }}>
@@ -811,7 +902,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
                 {validSeries.map((p, i) => {
                   const v = signed[i];
                   if (v === null) return null;
-                  const x = xOf(p.idx);
+                  const x = xOf(p.pos);
                   const y0 = yOf(0), y1 = yOf(v);
                   const st = POINT_STATUS[devs[i].status];
                   const isActive = activeIdx === p.idx;
@@ -830,7 +921,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               {validSeries.map((p, i) => {
                 const v = signed[i];
                 if (v === null || Math.abs(v) <= R) return null;
-                const x = xOf(p.idx);
+                const x = xOf(p.pos);
                 const yE = v > 0 ? top : top + pH;
                 const d = v > 0
                   ? `M${x - 5},${yE + 7} L${x},${yE} L${x + 5},${yE + 7} Z`
@@ -847,7 +938,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
                 const placed = [];
                 const out = [];
                 for (const { p, i, v } of order) {
-                  const x = xOf(p.idx);
+                  const x = xOf(p.pos);
                   if (x < margin - 1 || x > size - margin + 1) continue;
                   const label = `${v > 0 ? "+" : ""}${Math.round(v)}%`;
                   const w = label.length * 6.2 + 4;
@@ -867,8 +958,10 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
                 }
                 return out;
               })()}
-              {series.map(p => {
-                const x = xOf(p.idx);
+              {byX ? niceTicks(minX, maxX, 8).ticks.map(v => (
+                <text key={`dxt-${v}`} x={xOf(v)} y={devH - 8} fontSize="10.5" fill="#94a3b8" textAnchor="middle">{v}</text>
+              )) : series.map(p => {
+                const x = xOf(p.pos);
                 if (x < margin - 1 || x > size - margin + 1) return null;
                 return (
                   <text key={`dx-${p.idx}`} x={x} y={devH - 8} fontSize="10.5" fill={activeIdx === p.idx ? "#1E3A8A" : "#94a3b8"}
@@ -956,6 +1049,7 @@ export default function GainAngleChart({ standardX, standardY, standardPoints, p
               }}>
                 Gain Y เปลี่ยนไป {Math.abs(diff).toFixed(3)}
                 {diffPercent !== null && ` (${diffPercent.toFixed(1)}%)`}
+                {byX && <span style={{ fontWeight: 500, color: "#94a3b8", fontSize: 11 }}> · เทียบช่วง X ที่วัด</span>}
               </div>
             )}
           </div>

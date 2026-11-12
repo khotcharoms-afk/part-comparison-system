@@ -471,7 +471,8 @@ function StandardsTab({ standards, canManage, currentUser }) {
               Gain X / Gain Y รายจุด (โปรไฟล์หน้ายาง) — ไม่บังคับ
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 8 }}>
-              กรอกเรียงจากขอบซ้าย (#1) ไปขอบขวา · ถ้าเว้น X ว่างไว้ ระบบใช้เลขลำดับจุดแทน
+              X = ระยะจากขอบซ้าย (mm) เริ่มที่ 0 · ถ้ากรอก X ทุกจุด ระบบจะเทียบผลตรวจตามระยะจริง
+              · ถ้าเว้น X ว่าง ระบบเทียบตามลำดับจุดแทน
               · ตอนตรวจเลือกจำนวนจุดต่างจากนี้ได้ ระบบเทียบตามตำแหน่งบนหน้ายางให้
             </div>
 
@@ -616,11 +617,15 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   const selected = standards.find(s => s.id === selectedId);
   // Ignore empty rows at the end (e.g. a row added with "+ เพิ่มจุด" but not filled yet)
-  const filledGain = useMemo(() => {
+  // trimmedGain keeps X exactly as entered (blank = no real position) — the chart and the
+  // diagnosis use it to decide whether they can compare by X (mm).
+  // filledGain fills blank X with the point number — only for the averages.
+  const trimmedGain = useMemo(() => {
     let n = gainPoints.length;
     while (n > 0 && gainPoints[n - 1].x === "" && gainPoints[n - 1].y === "") n--;
-    return effGain(gainPoints.slice(0, n));
+    return gainPoints.slice(0, n);
   }, [gainPoints]);
+  const filledGain = useMemo(() => effGain(trimmedGain), [trimmedGain]);
   const stdGainCount = selected?.specs?.gainPoints?.length || 0;
   const [importOpen, setImportOpen] = useState(false);
 
@@ -661,12 +666,12 @@ function InspectTab({ standards, inspections, currentUser }) {
     if (!selected) return { level: null, findings: [], worn: [], bulge: [] };
     const sp = selected.specs?.gainPoints || [];
     return diagnoseProfile({
-      points: filledGain,
+      points: trimmedGain,
       standardPoints: sp,
       standardY: selected.specs?.gainAverage?.y,
       thresholds: selected.thresholds,
     });
-  }, [selected, filledGain]);
+  }, [selected, trimmedGain]);
 
   // Final result = the worst of: size (diameter/thickness), Gain profile, surface condition
   const RANK = { ok: 0, warning: 1, critical: 2 };
@@ -728,10 +733,17 @@ function InspectTab({ standards, inspections, currentUser }) {
 
   // A value for a NEW point (from the caliper, or typed in the append slot + Enter)
   const appendValue = (raw) => {
-    const v = String(raw).trim();
-    if (v === "" || !Number.isFinite(parseFloat(v))) return;
+    const nums = String(raw).match(/-?\d+(?:\.\d+)?/g) || [];
+    if (nums.length === 0) return;
     if (gainPoints.length >= MAX_POINTS) { alert(`วัดได้สูงสุด ${MAX_POINTS} จุด`); return; }
     const idx = gainPoints.length;
+    // "X Y" typed together (e.g. "20 1.25" or "20,1.25") → one complete point
+    if (nums.length >= 2) {
+      setGainPoints(prev => [...prev, { x: nums[0], y: nums[1] }]);
+      focusTarget({ kind: "append" });
+      return;
+    }
+    const v = nums[0];
     if (entryMode === "xy") {
       setGainPoints(prev => [...prev, { x: v, y: "" }]);
       focusTarget({ kind: "gain", idx, axis: "y" });
@@ -811,11 +823,11 @@ function InspectTab({ standards, inspections, currentUser }) {
         },
         results: liveResults,
         overallStatus,
-        gainPoints: filledGain.map(p => ({
-          x: toNum(p.x),
+        gainPoints: trimmedGain.map(p => ({
+          x: toNum(p.x),     // null = X not entered (position = point order)
           y: toNum(p.y),
         })),
-        pointCount: filledGain.length,
+        pointCount: trimmedGain.length,
         gainAverage: { x: gainAverage.avgX, y: gainAverage.avgY, count: gainAverage.count },
         angleInfo,
         gainDiagnosis: gainDiag.level
@@ -964,7 +976,7 @@ function InspectTab({ standards, inspections, currentUser }) {
         </div>
         <div style={{ fontSize: 10.5, color: "#94a3b8", marginBottom: 8 }}>
           วัดเรียงจากขอบซ้ายไปขอบขวา · กดส่งค่าจากเครื่องมือ 1 ครั้ง = เพิ่ม 1 จุด
-          {entryMode === "xy" ? " (ยิง X แล้วตามด้วย Y)" : " (X ใช้เลขลำดับจุด)"}
+          {entryMode === "xy" ? " (ยิง X แล้วตามด้วย Y หรือพิมพ์คู่ เช่น 20 1.25 แล้ว Enter)" : " (X ใช้เลขลำดับจุด)"}
           {" · "}พิมพ์เองก็ได้ กด Enter เพื่อไปช่อง/จุดถัดไป · คลิกช่องเดิมเพื่อแก้ค่าได้
         </div>
         <style>{`
@@ -1038,8 +1050,8 @@ function InspectTab({ standards, inspections, currentUser }) {
                     <input
                       ref={appendRef}
                       className="gxy-input"
-                      type="number" value={appendDraft} disabled={!selected || full}
-                      placeholder={full ? `ครบ ${MAX_POINTS} จุด` : on ? "รอค่า… / พิมพ์+Enter" : "คลิกเพื่อเพิ่มจุด"}
+                      type="text" inputMode="decimal" value={appendDraft} disabled={!selected || full}
+                      placeholder={full ? `ครบ ${MAX_POINTS} จุด` : on ? (entryMode === "xy" ? "รอค่า… หรือ X Y แล้ว Enter" : "รอค่า… / พิมพ์+Enter") : "คลิกเพื่อเพิ่มจุด"}
                       onChange={e => setAppendDraft(e.target.value)}
                       onFocus={() => setActiveTargetKey(APPEND_KEY)}
                       onKeyDown={e => {
@@ -1069,7 +1081,7 @@ function InspectTab({ standards, inspections, currentUser }) {
               <GainAngleChart
                 standardX={selected.specs?.gainAverage?.x} standardY={selected.specs?.gainAverage?.y}
                 standardPoints={selected.specs?.gainPoints}
-                points={filledGain} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
+                points={trimmedGain} avgX={gainAverage.avgX} avgY={gainAverage.avgY} count={gainAverage.count}
                 thresholds={selected.thresholds}
               />
             </div>
