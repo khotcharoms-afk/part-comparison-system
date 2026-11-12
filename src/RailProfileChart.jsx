@@ -268,6 +268,7 @@ const STATUS = {
 
 export default function RailProfileChart({ standardPoints, points, rail, variant = "rail", plain }) {
   const [hover, setHover] = useState(null);
+  const [exaggerate, setExaggerate] = useState(false);
   const isPlain = variant === "plain";
   // plain wheels: no flange/boundary/limit points
   const r = isPlain ? { ...railSettings(null), boundaryX: -Infinity, limits: [] } : railSettings(rail);
@@ -285,8 +286,23 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
   const ys = [...S.map(p => p.y), ...M.map(p => p.y), ...r.limits.map(l => l.y)];
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   const yMin = Math.min(...ys), yMax = Math.max(...ys);
-  const padX = (xMax - xMin) * 0.03 || 1, padY = (yMax - yMin) * 0.1 || 1;
-  const X0 = xMin - padX, X1 = xMax + padX, Y0 = yMin - padY, Y1 = yMax + padY;
+  const padX = (xMax - xMin) * 0.03 || 1;
+  const X0 = xMin - padX, X1 = xMax + padX;
+  // "True scale": 1 mm on Y looks like 1 mm on X (as on a real cross-section), so a
+  // nearly-flat tread looks flat. "Exaggerate" stretches Y to fill the plot to see small wear.
+  let Y0, Y1;
+  const dataSpanY = (yMax - yMin) || 1;
+  if (exaggerate) {
+    const padY = dataSpanY * 0.1;
+    Y0 = yMin - padY; Y1 = yMax + padY;
+  } else {
+    const trueSpanY = (X1 - X0) * (plotH / plotW);           // same mm-per-pixel as X
+    const spanY = Math.max(trueSpanY, dataSpanY * 1.15);
+    const mid = (yMin + yMax) / 2;
+    // keep the profile in the upper part of the plot, with room below for the wheel body
+    Y1 = Math.max(yMax + dataSpanY * 0.08 + 0.5, mid + spanY / 2);
+    Y0 = Y1 - spanY;
+  }
   const px = x => ml + ((x - X0) / (X1 - X0)) * plotW;
   const py = y => mt + (1 - (y - Y0) / (Y1 - Y0)) * plotH;
   const path = poly => poly.map((p, i) => `${i ? "L" : "M"}${px(p.x).toFixed(2)},${py(p.y).toFixed(2)}`).join(" ");
@@ -317,6 +333,19 @@ export default function RailProfileChart({ standardPoints, points, rail, variant
       </div>
       <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>
         แกน X / Y เป็น mm · เส้นประ = มาตรฐาน (ล้อใหม่) · เส้นทึบ = ที่วัดได้ · วัดแล้ว {M.length} จุด
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -30, marginBottom: 8 }}>
+        <div style={{ display: "inline-flex", padding: 3, gap: 3, background: "#f1f5f9", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+          {[[false, "สัดส่วนจริง"], [true, "ขยายความต่าง"]].map(([v, label]) => (
+            <button key={label} type="button" onClick={() => setExaggerate(v)} style={{
+              border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, fontFamily: "inherit",
+              cursor: "pointer", background: exaggerate === v ? "#fff" : "transparent",
+              color: exaggerate === v ? "#2563EB" : "#64748b",
+              boxShadow: exaggerate === v ? "0 1px 2px rgba(15,23,42,0.12)" : "none",
+            }}>{label}</button>
+          ))}
+        </div>
       </div>
 
       {/* headline numbers */}
