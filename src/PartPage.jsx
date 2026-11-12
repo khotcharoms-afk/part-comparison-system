@@ -246,6 +246,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
   const [pointCount, setPointCount] = useState(10);
   const [gainPoints, setGainPoints] = useState(() => emptyGainPoints(10));
   const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const updateGainPoint = (idx, axis, val) => {
     setGainPoints(prev => prev.map((p, i) => (i === idx ? { ...p, [axis]: val } : p)));
@@ -257,6 +258,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
   };
 
   const openNew = () => {
+    setImportOpen(false);
     setForm(emptyStandardForm);
     setPointCount(10);
     setGainPoints(emptyGainPoints(10));
@@ -265,6 +267,7 @@ function StandardsTab({ standards, canManage, currentUser }) {
   };
 
   const openEdit = (s) => {
+    setImportOpen(false);
     setForm({
       model: s.model || "",
       partType: s.partType || "",
@@ -473,7 +476,14 @@ function StandardsTab({ standards, canManage, currentUser }) {
               · ตอนตรวจเลือกจำนวนจุดต่างจากนี้ได้ ระบบเทียบตามตำแหน่งบนหน้ายางให้
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            {importOpen ? (
+              <GainImportPanel
+                hasValues={gainPoints.some(p => p.x !== "" || p.y !== "")}
+                onClose={() => setImportOpen(false)}
+                onImport={pts => { setGainPoints(pts); setPointCount(pts.length); setImportOpen(false); }}
+              />
+            ) : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: "#475569", fontWeight: 600 }}>ความละเอียด:</span>
               {GAIN_POINT_OPTIONS.map(n => (
                 <button key={n} type="button" onClick={() => changePointCount(n)} style={{
@@ -484,6 +494,16 @@ function StandardsTab({ standards, canManage, currentUser }) {
                   fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
                 }}>{n} จุด</button>
               ))}
+              {!GAIN_POINT_OPTIONS.includes(pointCount) && (
+                <span style={{ fontSize: 12, fontWeight: 700, color: PRIMARY }}>{pointCount} จุด</span>
+              )}
+              {!importOpen && (
+                <button type="button" onClick={() => setImportOpen(true)} style={{
+                  marginLeft: "auto", background: "#fff", color: PRIMARY,
+                  border: `1px solid ${PRIMARY_BORDER}`, borderRadius: 7,
+                  padding: "4px 10px", fontSize: 11, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+                }}>📋 วางค่า (Import)</button>
+              )}
             </div>
 
             <div style={{
@@ -585,6 +605,7 @@ function InspectTab({ standards, inspections, currentUser }) {
   const defaultGainCount = selected?.specs?.gainPoints?.length || 10;
   const stdGainCount = selected?.specs?.gainPoints?.length || 0;
   const [customCount, setCustomCount] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   const changeInspectCount = (n) => {
     n = Math.max(MIN_POINTS, Math.min(MAX_POINTS, Math.round(n)));
     if (!Number.isFinite(n) || n === gainPoints.length) return;
@@ -841,6 +862,15 @@ function InspectTab({ standards, inspections, currentUser }) {
 
       <Card dim={!selected}>
         <SectionTitle step={3} title={`Gain X / Gain Y — ${gainPoints.length} จุด (ขอบซ้าย → ขวา)`} right={
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {!importOpen && (
+            <button type="button" disabled={!selected} onClick={() => setImportOpen(true)} style={{
+              background: "#fff", color: !selected ? "#cbd5e1" : PRIMARY,
+              border: `1px solid ${!selected ? LINE : PRIMARY_BORDER}`, borderRadius: 7,
+              padding: "5px 10px", fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+              cursor: selected ? "pointer" : "default",
+            }}>📋 วางค่า (Import)</button>
+          )}
           <button type="button" onClick={clearGain} disabled={!anyGainEntered} style={{
             background: anyGainEntered ? "#fef2f2" : "#f8fafc",
             color: anyGainEntered ? "#dc2626" : "#cbd5e1",
@@ -848,7 +878,15 @@ function InspectTab({ standards, inspections, currentUser }) {
             padding: "5px 10px", fontSize: 11, fontWeight: 700, fontFamily: "inherit",
             cursor: anyGainEntered ? "pointer" : "default",
           }}>🗑 ล้างค่า Gain</button>
+          </div>
         } />
+        {importOpen && (
+          <GainImportPanel
+            hasValues={anyGainEntered}
+            onClose={() => setImportOpen(false)}
+            onImport={pts => { setGainPoints(pts); setImportOpen(false); }}
+          />
+        )}
         {/* point count picker — free choice, independent of the standard */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>จำนวนจุดที่วัด:</span>
@@ -1119,6 +1157,77 @@ function InspectTab({ standards, inspections, currentUser }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- GAIN IMPORT (paste values) ---------------- */
+
+// Accepts:
+//  • one column of Y (pasted from Excel), or numbers separated by commas/spaces
+//  • two columns X  Y per line (Excel copy gives a tab between them)
+//  • lines with a label before ":"  e.g. "#1–#10 : 1.14, 1.16, …"
+// Returns { points: [{x, y}], mode: "xy" | "y" } or { error }.
+export function parseGainPaste(text) {
+  const lines = String(text || "").split(/\r?\n/)
+    .map(l => (l.includes(":") ? l.slice(l.lastIndexOf(":") + 1) : l))
+    .map(l => l.replace(/#\S*/g, " "))
+    .map(l => l.match(/-?\d+(?:\.\d+)?/g) || [])   // decimal point only; commas separate values
+    .filter(nums => nums.length > 0);
+  if (lines.length === 0) return { error: "ไม่พบตัวเลข" };
+  const pairs = lines.length >= MIN_POINTS && lines.every(n => n.length === 2);
+  const points = pairs
+    ? lines.map(([x, y]) => ({ x, y }))
+    : lines.flat().map(y => ({ x: "", y }));
+  if (points.length < MIN_POINTS) return { error: `ต้องมีอย่างน้อย ${MIN_POINTS} ค่า (พบ ${points.length})` };
+  if (points.length > MAX_POINTS) return { error: `ได้สูงสุด ${MAX_POINTS} จุด (พบ ${points.length})` };
+  return { points, mode: pairs ? "xy" : "y" };
+}
+
+function GainImportPanel({ hasValues, onImport, onClose }) {
+  const [text, setText] = useState("");
+  const parsed = text.trim() ? parseGainPaste(text) : null;
+  const apply = () => {
+    if (!parsed || parsed.error) return;
+    if (hasValues && !confirm(`แทนที่ค่า Gain ที่กรอกไว้ด้วย ${parsed.points.length} จุดที่วาง?`)) return;
+    onImport(parsed.points);
+    setText("");
+  };
+  return (
+    <div style={{
+      width: "100%", background: PRIMARY_LIGHT, border: `1px solid ${PRIMARY_BORDER}`,
+      borderRadius: 10, padding: 10, marginBottom: 10, boxSizing: "border-box",
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: PRIMARY_DARK, marginBottom: 4 }}>📋 วางค่า Gain</div>
+      <div style={{ fontSize: 11, color: "#475569", marginBottom: 6, lineHeight: 1.5 }}>
+        คัดลอกจาก Excel หรือพิมพ์คั่นด้วยจุลภาค/เว้นวรรค/ขึ้นบรรทัดใหม่ เรียงจากขอบซ้ายไปขวา
+        <br />• คอลัมน์เดียว = ค่า Y (X เว้นว่าง ใช้เลขลำดับจุด) • สองคอลัมน์ = X กับ Y
+      </div>
+      <textarea
+        autoFocus value={text} onChange={e => setText(e.target.value)} rows={5}
+        placeholder={"เช่น\n1.14, 1.21, 1.26, 1.28, 1.29\nหรือวางสองคอลัมน์ X  Y จาก Excel"}
+        style={{
+          width: "100%", boxSizing: "border-box", border: `1px solid ${PRIMARY_BORDER}`, borderRadius: 8,
+          padding: 8, fontSize: 12, fontFamily: "ui-monospace, Menlo, Consolas, monospace", resize: "vertical",
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: parsed?.error ? "#dc2626" : "#166534" }}>
+          {!parsed ? "" : parsed.error ? `⚠️ ${parsed.error}`
+            : `พบ ${parsed.points.length} จุด · ${parsed.mode === "xy" ? "X และ Y" : "Y อย่างเดียว"}`}
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <button type="button" onClick={() => { setText(""); onClose(); }} style={{
+            background: "#fff", border: `1px solid ${LINE}`, color: "#475569", borderRadius: 7,
+            padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}>ยกเลิก</button>
+          <button type="button" onClick={apply} disabled={!parsed || !!parsed.error} style={{
+            background: !parsed || parsed.error ? "#cbd5e1" : PRIMARY, border: "none", color: "#fff",
+            borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 800,
+            cursor: !parsed || parsed.error ? "default" : "pointer", fontFamily: "inherit",
+          }}>นำเข้า</button>
+        </div>
       </div>
     </div>
   );
